@@ -10,9 +10,12 @@ echo "=================================="
 echo ""
 
 # Config chuẩn không bao giờ sai tên
+# Config chuẩn xác đường dẫn GitHub cá nhân
 GITHUB_USER="levanchung241210-collab"
 GITHUB_REPO="roblox-rejoin-"
 GITHUB_BRANCH="main"
+
+# Định nghĩa link tải Raw không bao giờ lỗi
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
 INSTALL_DIR="$HOME/.roblox_auto_rejoin"
