@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/bin/bash
 # ===============================================
 # ROBLOX AUTO REJOIN - ONE COMMAND INSTALL
 # Download từ GitHub + Setup + Run
@@ -9,12 +9,11 @@ echo "  ROBLOX AUTO REJOIN INSTALLER"
 echo "=================================="
 echo ""
 
-# Config
-GITHUB_USER="levanchung241210"
+# Config chuẩn theo Kho chứa mới của bạn
+GITHUB_USER="levanchung241210-collab"
 GITHUB_REPO="roblox-rejoin-"
 GITHUB_BRANCH="main"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
-
 INSTALL_DIR="$HOME/.roblox_auto_rejoin"
 STATE_DIR="/data/local/tmp/roblox_state"
 LOG_DIR="/data/local/tmp"
