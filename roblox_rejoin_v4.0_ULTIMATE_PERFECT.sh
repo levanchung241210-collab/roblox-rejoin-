@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/bin/bash
 # ===============================================
 # ROBLOX AUTO REJOIN V4.0 ULTIMATE (FIXED)
 # 1 File Complete - Auto Everything!
@@ -6,6 +6,7 @@
 
 STATE_DIR="$HOME/.roblox_auto_rejoin/roblox_state"
 LOG_DIR="$HOME/.roblox_auto_rejoin"
+LOG_FILE="$LOG_DIR/roblox_executor.log"
 DASHBOARD_HTML="/sdcard/Download/roblox_dashboard.html"
 
 PLACE_ID="2753915549"
@@ -413,11 +414,9 @@ generate_dashboard() {
                 ;;
         esac
         
-        # Tạo chuỗi HTML (bỏ ký tự xuống dòng để sed không lỗi)
         account_html="${account_html} <div class='${card_class}'><div class='account-info'><div class='account-icon'>${icon}</div><div><div class='account-name'>${acc}</div><span class='status-badge ${badge_class}'>${state}</span></div></div><div class='account-detail'><div class='detail-item'><span class='detail-label'>Restarts:</span><span>${restart}</span></div><div class='detail-item'><span class='detail-label'>Last Error:</span><span>${last_error}</span></div><div class='detail-item'><span class='detail-label'>Uptime:</span><span>${uptime_str}</span></div><div class='detail-item'><span class='detail-label'>PID:</span><span>${pid}</span></div></div><div class='account-actions'><button class='btn-pause' onclick='alert(\"Run: sh roblox_rejoin_v4.0_ULTIMATE.sh pause ${acc}\")'>⏸ PAUSE</button><button class='btn-resume' onclick='alert(\"Run: sh roblox_rejoin_v4.0_ULTIMATE.sh resume ${acc}\")'>▶ RESUME</button></div></div>"
     done
     
-    # Dùng EOFHTML (không dấu nháy) để điền biến trực tiếp
     cat > "$DASHBOARD_HTML" << EOFHTML
 <!DOCTYPE html>
 <html lang="vi">
@@ -721,7 +720,7 @@ main() {
     echo "📊 Dashboard: /sdcard/Download/roblox_dashboard.html"
     echo "   Open with Chrome/Firefox to monitor"
     echo ""
-    echo "📝 Logs: /data/local/tmp/roblox_executor.log"
+    echo "📝 Logs: $LOG_FILE"
     echo ""
     
     # Main loop (Optimized - Generate dashboard after every check cycle)
