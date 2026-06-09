@@ -4,8 +4,8 @@
 # 1 File Complete - Auto Everything!
 # ===============================================
 
-STATE_DIR="/data/local/tmp/roblox_state"
-LOG_FILE="/data/local/tmp/roblox_executor.log"
+STATE_DIR="$HOME/.roblox_auto_rejoin/roblox_state"
+LOG_DIR="$HOME/.roblox_auto_rejoin"
 DASHBOARD_HTML="/sdcard/Download/roblox_dashboard.html"
 
 PLACE_ID="2753915549"
