@@ -9,9 +9,9 @@ echo "  ROBLOX AUTO REJOIN INSTALLER"
 echo "=================================="
 echo ""
 
-# ⚠️ HÃY THAY ĐỔI TÊN USER CỦA BẠN Ở ĐÂY
-GITHUB_USER="YOUR_GITHUB_USERNAME"
-GITHUB_REPO="roblox-auto-rejoin"
+# Config
+GITHUB_USER="levanchung241210"
+GITHUB_REPO="roblox-rejoin"
 GITHUB_BRANCH="main"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
@@ -46,76 +46,96 @@ download_file() {
     fi
     
     if [ ! -f "$output" ]; then
-        echo "[!] Failed to download: $output"
-        exit 1
+        echo "[!] Failed to download: $url"
+        return 1
     fi
+    
+    return 0
 }
 
 download_files() {
-    echo "[*] Creating installation directory..."
+    echo "[*] Creating install directory..."
     mkdir -p "$INSTALL_DIR"
     
-    echo "[*] Downloading components from GitHub..."
+    echo "[*] Downloading files from GitHub..."
+    echo ""
     
-    echo "  -> Downloading Main Executor..."
-    download_file "${GITHUB_RAW}/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh" "${INSTALL_DIR}/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+    # Download main executor
+    echo "  [*] Downloading executor..."
+    download_file \
+        "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh" \
+        "$INSTALL_DIR/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+    if [ $? -eq 0 ]; then
+        echo "  [+] Executor ✓"
+    else
+        echo "  [!] Executor ✗"
+        exit 1
+    fi
     
-    echo "  -> Downloading Control Panel..."
-    download_file "${GITHUB_RAW}/control_panel.sh" "${INSTALL_DIR}/control_panel.sh"
+    # Download control panel
+    echo "  [*] Downloading control panel..."
+    download_file \
+        "$GITHUB_RAW/control_panel.sh" \
+        "$INSTALL_DIR/control_panel.sh"
+    if [ $? -eq 0 ]; then
+        echo "  [+] Control panel ✓"
+    else
+        echo "  [!] Control panel ✗"
+        exit 1
+    fi
     
-    echo "[+] All files downloaded successfully ✓"
+    echo ""
+    echo "[+] All files downloaded ✓"
     echo ""
 }
 
 # ==================== SETUP PERMISSIONS ====================
 setup_permissions() {
-    echo "[*] Setting up executable permissions..."
+    echo "[*] Setting up permissions..."
+    
     chmod +x "$INSTALL_DIR/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
     chmod +x "$INSTALL_DIR/control_panel.sh"
-    echo "[+] Permissions configured ✓"
+    
+    echo "[+] Permissions set ✓"
     echo ""
 }
 
-# ==================== SETUP DIRECTORIES ====================
+# ==================== CREATE DIRECTORIES ====================
 setup_directories() {
-    echo "[*] Preparing system directories..."
+    echo "[*] Creating directories..."
+    
     mkdir -p "$STATE_DIR"
     mkdir -p "$LOG_DIR"
-    echo "[+] System directories ready ✓"
+    mkdir -p "/sdcard/Download"
+    
+    echo "[+] Directories created ✓"
     echo ""
 }
 
 # ==================== CREATE ALIASES ====================
 create_aliases() {
-    echo "[*] Creating command shortcuts (aliases)..."
+    echo "[*] Creating aliases..."
     
-    local shell_rc=""
-    if [ -n "$SHELL" ]; then
-        case "$SHELL" in
-            *zsh) shell_rc="$HOME/.zshrc" ;;
-            *bash) shell_rc="$HOME/.bashrc" ;;
-            *) shell_rc="$HOME/.bashrc" ;;
-        esac
-    else
-        shell_rc="$HOME/.bashrc"
-    end
+    local profile_file="$HOME/.bashrc"
+    if [ ! -f "$profile_file" ]; then
+        profile_file="$HOME/.profile"
+    fi
     
-    [ ! -f "$shell_rc" ] && touch "$shell_rc"
-    
-    # Kiểm tra xem đã ghi alias chưa, nếu chưa thì ghi vào cuối file cấu hình shell
-    if ! grep -q "roblox-rejoin" "$shell_rc"; then
-        cat << EOF >> "$shell_rc"
+    # Add aliases
+    if ! grep -q "roblox-rejoin" "$profile_file" 2>/dev/null; then
+        cat >> "$profile_file" << 'EOF'
 
-# ROBLOX AUTO REJOIN ALIASES
-alias roblox-rejoin="sh \$HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
-alias roblox-control="sh \$HOME/.roblox_auto_rejoin/control_panel.sh"
-alias roblox-status="sh \$HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh status"
-alias roblox-logs="sh \$HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh logs"
+# Roblox Auto Rejoin Aliases
+alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+alias roblox-control="sh $HOME/.roblox_auto_rejoin/control_panel.sh"
+alias roblox-status="sh $HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh status"
+alias roblox-logs="sh $HOME/.roblox_auto_rejoin/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh logs"
 EOF
         echo "[+] Aliases created ✓"
     else
         echo "[+] Aliases already exist ✓"
     fi
+    
     echo ""
 }
 
@@ -133,6 +153,9 @@ show_success() {
     echo ""
     echo "  Run executor:"
     echo "    roblox-rejoin"
+    echo ""
+    echo "  Or full path:"
+    echo "    sh $INSTALL_DIR/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
     echo ""
     echo "  Control panel (open in another terminal):"
     echo "    roblox-control"
@@ -156,7 +179,12 @@ main() {
     create_aliases
     show_success
     
-    echo "[*] Please restart Termux or run: source ~/.bashrc (or source ~/.zshrc) to apply shortcuts."
+    echo "Source your shell profile to use aliases:"
+    echo "  source $HOME/.bashrc"
+    echo ""
+    echo "Or just use full path to start immediately:"
+    echo "  sh $INSTALL_DIR/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+    echo ""
 }
 
 main
