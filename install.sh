@@ -11,7 +11,7 @@ echo ""
 
 # Config
 GITHUB_USER="levanchung241210"
-GITHUB_REPO="roblox-rejoin"
+GITHUB_REPO="roblox-rejoin-"
 GITHUB_BRANCH="main"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
 
