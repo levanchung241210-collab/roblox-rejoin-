@@ -10,7 +10,7 @@ echo "=================================="
 echo ""
 
 # Config
-GITHUB_USER="YOUR_GITHUB_USERNAME"
+GITHUB_USER="Chris_Heria"
 GITHUB_REPO="roblox-auto-rejoin"
 GITHUB_BRANCH="main"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
