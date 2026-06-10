@@ -362,28 +362,43 @@ monitor_loop() {
 
     log_msg "SYSTEM" "V9 Monitor started"
 
+ monitor_loop() {
+    [ ! -f "$TAB_LIST_FILE" ] && exit 1
+
+    log_msg "SYSTEM" "V9 Monitor started"
+
     while true; do
+        clear
+
+        echo "======================================"
+        echo " ROBLOX AUTO REJOIN V9"
+        echo "======================================"
+        echo "Time: $(date)"
         echo ""
-        echo "========================================"
-        echo "[$(date '+%H:%M:%S')] Monitoring..."
-        echo "========================================"
 
         while read -r pkg; do
-            [ -z "$pkg" ] && continue
+            echo "[CHECK] $pkg"
 
-            monitor_tab "$pkg" &
+            monitor_tab "$pkg"
 
             score=$(read_state "$pkg" "HEALTH_SCORE")
-            [ -z "$score" ] && score="0"
+            error=$(read_state "$pkg" "LAST_ERROR")
 
-            state=$(score_to_state "$score")
-
-            printf "%-35s | %-8s | %s\n" \
-                "$pkg" \
-                "$state" \
-                "Score:$score"
-
+            echo "  Score : $score"
+            echo "  Error : $error"
+            echo ""
         done < "$TAB_LIST_FILE"
+
+        process_queue
+        generate_dashboard
+
+        echo "Next scan in $CHECK_INTERVAL seconds..."
+        echo ""
+
+        sleep $CHECK_INTERVAL
+    done
+}
+ < "$TAB_LIST_FILE"
 
         wait
 
