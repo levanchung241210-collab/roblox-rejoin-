@@ -1,27 +1,27 @@
 #!/system/bin/sh
 # ===============================================
-# ROBLOX AUTO REJOIN V4.0 ULTIMATE (FIXED)
-# 1 File Complete - Auto Everything!
+# ROBLOX AUTO REJOIN V5.0 - HYBRID
+# Merged: Installer detection + Executor + Watchdog logic
 # ===============================================
 
 STATE_DIR="$HOME/.roblox_auto_rejoin/state"
 LOG_FILE="$HOME/.roblox_auto_rejoin/executor.log"
 DASHBOARD_HTML="/sdcard/Download/roblox_dashboard.html"
+PACKAGE_MAP="$HOME/.roblox_auto_rejoin/package_map.db"
 
 PLACE_ID="2753915549"
 LINK="roblox://placeId=$PLACE_ID"
 
 LOAD_TIME=180
-COOLDOWN_TIME=120
 CHECK_INTERVAL=15
 MAX_RESTARTS=10
 
-# ==================== INITIALIZE ====================
+# ==================== INITIALIZATION ====================
 init_system() {
     mkdir -p "$STATE_DIR"
     mkdir -p "/sdcard/Download"
     : > "$LOG_FILE"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] === SYSTEM INITIALIZED ===" >> "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] === EXECUTOR V5.0 STARTED ===" >> "$LOG_FILE"
 }
 
 log_msg() {
@@ -37,27 +37,28 @@ log_msg() {
     fi
 }
 
-# ==================== AUTO DETECT PACKAGES ====================
-auto_detect_packages() {
-    echo "[*] Auto-detecting Roblox packages..."
-    
-    local packages=$(pm list packages 2>/dev/null | grep -i roblox | sed 's/package://')
-    
-    if [ -z "$packages" ]; then
-        echo "[!] No Roblox packages found!"
-        echo ""
-        echo "Please install Roblox apps first:"
-        echo "  - Clone Roblox app multiple times, OR"
-        echo "  - Use app cloner"
-        echo ""
-        exit 1
+# ==================== PACKAGE DETECTION & MAPPING ====================
+detect_packages() {
+    # Accept packages from command line argument
+    if [ -n "$1" ]; then
+        echo "$1"
+    else
+        # Fallback: auto-detect
+        pm list packages 2>/dev/null | grep -i roblox | sed 's/package://'
     fi
+}
+
+create_package_map() {
+    local accounts=$1
     
-    echo "[+] Found packages:"
-    echo "$packages" | nl -v 1
-    echo ""
+    echo "# Package map - Auto-generated $(date '+%Y-%m-%d %H:%M:%S')" > "$PACKAGE_MAP"
+    echo "$accounts" | while IFS= read -r pkg; do
+        # Extract basename for pattern matching
+        basename=$(echo "$pkg" | grep -oE '[^.]+$')
+        echo "$pkg|$basename" >> "$PACKAGE_MAP"
+    done
     
-    echo "$packages"
+    log_msg "SYSTEM" "Package map created with $(echo "$accounts" | wc -l) packages" ""
 }
 
 # ==================== STATE MANAGEMENT ====================
@@ -78,8 +79,10 @@ GFX_TIMEOUT=0
 FREEZE_COUNT=0
 PAUSED_TIME=0
 LAST_FRAME_COUNT=0
+STREAK=0
+ANR_COUNT=0
 EOF
-        log_msg "INIT" "State initialized" "$acc"
+        log_msg "INIT" "State file created" "$acc"
     fi
 }
 
@@ -89,7 +92,7 @@ read_state() {
     local state_file="$STATE_DIR/${acc}.state"
     
     if [ -f "$state_file" ]; then
-        grep "^${key}=" "$state_file" | cut -d'=' -f2
+        grep "^${key}=" "$state_file" 2>/dev/null | cut -d'=' -f2
     fi
 }
 
@@ -99,24 +102,24 @@ write_state() {
     local value=$3
     local state_file="$STATE_DIR/${acc}.state"
     
-    if grep -q "^${key}=" "$state_file" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|g" "$state_file"
-    else
-        echo "${key}=${value}" >> "$state_file"
+    if [ -f "$state_file" ]; then
+        if grep -q "^${key}=" "$state_file" 2>/dev/null; then
+            sed -i "s|^${key}=.*|${key}=${value}|g" "$state_file"
+        else
+            echo "${key}=${value}" >> "$state_file"
+        fi
     fi
 }
 
 pause_account() {
     local acc=$1
     write_state "$acc" "STATE" "PAUSED"
-    write_state "$acc" "PAUSED_TIME" "$(date +%s)"
     log_msg "PAUSE" "Account paused" "$acc"
 }
 
 resume_account() {
     local acc=$1
     write_state "$acc" "STATE" "RUNNING"
-    write_state "$acc" "PAUSED_TIME" "0"
     log_msg "RESUME" "Account resumed" "$acc"
 }
 
@@ -132,13 +135,7 @@ get_recovery_level() {
     esac
 }
 
-is_recoverable() {
-    local error=$1
-    local level=$(get_recovery_level "$error")
-    [ "$level" -gt 0 ]
-}
-
-# ==================== RESTART ====================
+# ==================== SMART RESTART (Watchdog Logic) ====================
 smart_restart() {
     local acc=$1
     local reason=$2
@@ -155,14 +152,21 @@ smart_restart() {
     write_state "$acc" "RESTART_COUNT" "$restart_count"
     log_msg "RESTART" "Restarting - $reason (Count: $restart_count)" "$acc"
     
+    # Force stop
     am force-stop "$acc" 2>/dev/null
     sleep 1
+    
+    # Trim cache
     pm trim-caches 256M > /dev/null 2>&1
     sleep 2
-    am start -a android.intent.action.VIEW -d "$LINK" "$acc" 2>/dev/null
+    
+    # Start app with Place ID link
+    am start -a android.intent.action.VIEW -d "$LINK" -p "$acc" 2>/dev/null
     
     write_state "$acc" "LAST_REJOIN" "$(date +%s)"
     write_state "$acc" "UPTIME_START" "$(date +%s)"
+    write_state "$acc" "STREAK" "$(($(read_state "$acc" "STREAK") + 1))"
+    
     return 0
 }
 
@@ -170,11 +174,23 @@ smart_restart() {
 detect_error() {
     local acc=$1
     
-    local error_line=$(logcat -d -t 30 2>/dev/null | grep -E "$acc" | grep -oE "Error Code: [0-9]{3}" | head -1)
+    # Try logcat first
+    local error_line=$(logcat -d -t 30 2>/dev/null | grep -i "$acc" | grep -oE "Error Code: [0-9]{3}" | head -1)
     
     if [ ! -z "$error_line" ]; then
         echo "$error_line" | grep -oE "[0-9]{3}"
+        return 0
     fi
+    
+    # Fallback: check dumpsys
+    local dump=$(timeout 3 dumpsys activity processes 2>/dev/null | grep -A 5 "$acc")
+    if echo "$dump" | grep -q "ANR\|ANT"; then
+        echo "256"
+        write_state "$acc" "ANR_COUNT" "$(($(read_state "$acc" "ANR_COUNT") + 1))"
+        return 0
+    fi
+    
+    return 1
 }
 
 detect_gfx_timeout() {
@@ -182,39 +198,22 @@ detect_gfx_timeout() {
     
     local gfx=$(timeout 3 dumpsys gfxinfo "$acc" 2>/dev/null | grep "Total frames rendered" | awk '{print $4}')
     
-    if [ -z "$gfx" ]; then
-        return 0
+    if [ -z "$gfx" ] || [ "$gfx" = "0" ]; then
+        return 0  # timeout detected
     else
-        return 1
+        return 1  # OK
     fi
 }
 
-detect_frame_freeze() {
+detect_process_alive() {
     local acc=$1
+    local pid=$(pidof "$acc" 2>/dev/null)
     
-    local current_frames=$(timeout 3 dumpsys gfxinfo "$acc" 2>/dev/null | grep "Total frames rendered" | awk '{print $4}')
-    local previous_frames=$(read_state "$acc" "LAST_FRAME_COUNT")
-    
-    if [ -z "$previous_frames" ]; then
-        write_state "$acc" "LAST_FRAME_COUNT" "$current_frames"
-        return 1
-    fi
-    
-    if [ "$current_frames" = "$previous_frames" ]; then
-        local freeze_count=$(read_state "$acc" "FREEZE_COUNT")
-        freeze_count=$((freeze_count + 1))
-        write_state "$acc" "FREEZE_COUNT" "$freeze_count"
-        
-        if [ $freeze_count -ge 5 ]; then
-            write_state "$acc" "FREEZE_COUNT" "0"
-            return 0
-        fi
+    if [ -z "$pid" ]; then
+        return 1  # process dead
     else
-        write_state "$acc" "FREEZE_COUNT" "0"
-        write_state "$acc" "LAST_FRAME_COUNT" "$current_frames"
+        return 0  # process alive
     fi
-    
-    return 1
 }
 
 # ==================== RECOVERY ====================
@@ -232,47 +231,27 @@ execute_recovery() {
     if [ "$level" -eq 1 ]; then
         log_msg "RECOVERY" "Level 1 - Error: $error" "$acc"
         sleep 5
-        am start -a android.intent.action.VIEW -d "$LINK" "$acc" 2>/dev/null
+        am start -a android.intent.action.VIEW -d "$LINK" -p "$acc" 2>/dev/null
         write_state "$acc" "LAST_REJOIN" "$(date +%s)"
         return 0
     fi
     
     if [ "$level" -eq 2 ]; then
-        log_msg "RECOVERY" "Level 2 - Error: $error" "$acc"
+        log_msg "RECOVERY" "Level 2 - Error: $error (Restart)" "$acc"
         smart_restart "$acc" "ERROR_$error"
         return 0
     fi
     
     if [ "$level" -eq 3 ]; then
-        log_msg "RECOVERY" "Level 3 - Error: $error" "$acc"
+        log_msg "RECOVERY" "Level 3 - Error: $error (Full Reset)" "$acc"
         am force-stop "$acc" 2>/dev/null
         sleep 1
-        pm trim-caches 999G > /dev/null 2>&1
+        pm trim-caches 999M > /dev/null 2>&1
         sleep 3
-        am start -a android.intent.action.VIEW -d "$LINK" "$acc" 2>/dev/null
+        am start -a android.intent.action.VIEW -d "$LINK" -p "$acc" 2>/dev/null
         write_state "$acc" "LAST_REJOIN" "$(date +%s)"
         write_state "$acc" "UPTIME_START" "$(date +%s)"
         return 0
-    fi
-}
-
-handle_multi_device_error() {
-    local acc=$1
-    local error=$2
-    local state=$(read_state "$acc" "STATE")
-    
-    if [ "$error" = "264" ] || [ "$error" = "273" ]; then
-        if [ "$state" = "PAUSED" ]; then
-            log_msg "INFO" "Multi-device error - Account PAUSED (OK)" "$acc"
-            return 0
-        else
-            log_msg "WARN" "Multi-device error - Force stopping" "$acc"
-            am force-stop "$acc" 2>/dev/null
-            sleep 5
-            am start -a android.intent.action.VIEW -d "$LINK" "$acc" 2>/dev/null
-            write_state "$acc" "LAST_REJOIN" "$(date +%s)"
-            return 0
-        fi
     fi
 }
 
@@ -285,12 +264,11 @@ monitor_account() {
         return 0
     fi
     
-    local pid=$(pidof "$acc")
-    
-    if [ -z "$pid" ]; then
-        local uptime=$(read_state "$acc" "UPTIME_START")
+    # Check if process is alive
+    if ! detect_process_alive "$acc"; then
+        local uptime_start=$(read_state "$acc" "UPTIME_START")
         local current_time=$(date +%s)
-        local elapsed=$((current_time - uptime))
+        local elapsed=$((current_time - uptime_start))
         
         if [ $elapsed -ge $LOAD_TIME ]; then
             log_msg "CRASH" "Process crashed - Auto rejoin" "$acc"
@@ -299,54 +277,35 @@ monitor_account() {
         return 0
     fi
     
-    local uptime=$(read_state "$acc" "UPTIME_START")
+    # Process is alive - check for errors
+    local uptime_start=$(read_state "$acc" "UPTIME_START")
     local current_time=$(date +%s)
-    local elapsed=$((current_time - uptime))
+    local elapsed=$((current_time - uptime_start))
     
+    # Skip check during loading
     if [ $elapsed -lt $LOAD_TIME ]; then
         return 0
     fi
     
-    if detect_gfx_timeout "$acc" "$pid"; then
-        local gfx_timeout=$(read_state "$acc" "GFX_TIMEOUT")
-        gfx_timeout=$((gfx_timeout + 1))
-        write_state "$acc" "GFX_TIMEOUT" "$gfx_timeout"
-        
-        if [ $gfx_timeout -ge 3 ]; then
-            log_msg "TIMEOUT" "GFX timeout - System freeze" "$acc"
-            execute_recovery "$acc" "256"
-            write_state "$acc" "GFX_TIMEOUT" "0"
-            return 0
-        fi
-    else
-        write_state "$acc" "GFX_TIMEOUT" "0"
-    fi
-    
-    if detect_frame_freeze "$acc" "$pid"; then
-        log_msg "FREEZE" "Frame freeze detected" "$acc"
+    # Check GFX timeout
+    if detect_gfx_timeout "$acc"; then
+        log_msg "TIMEOUT" "GFX timeout detected" "$acc"
         execute_recovery "$acc" "256"
         return 0
     fi
     
-    local error=$(detect_error "$acc" "$pid")
-    
-    if [ ! -z "$error" ]; then
+    # Check error codes
+    local error=$(detect_error "$acc")
+    if [ -n "$error" ]; then
         log_msg "ERROR" "Error detected: $error" "$acc"
         write_state "$acc" "LAST_ERROR" "$error"
         write_state "$acc" "LAST_ERROR_TIME" "$(date +%s)"
-        
-        handle_multi_device_error "$acc" "$error"
-        
-        if is_recoverable "$error"; then
-            execute_recovery "$acc" "$error"
-        else
-            log_msg "PERM_ERROR" "Permanent error $error - Stop" "$acc"
-            write_state "$acc" "STATE" "BANNED"
-        fi
+        execute_recovery "$acc" "$error"
+        return 0
     fi
 }
 
-# ==================== GENERATE HTML DASHBOARD (FIXED) ====================
+# ==================== GENERATE DASHBOARD ====================
 generate_dashboard() {
     local accounts=$1
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
@@ -356,12 +315,9 @@ generate_dashboard() {
     local error_count=0
     local paused=0
     local banned=0
-    
     local account_html=""
     
     for acc in $accounts; do
-        init_account_state "$acc"
-        
         local state=$(read_state "$acc" "STATE")
         local restart=$(read_state "$acc" "RESTART_COUNT")
         local last_error=$(read_state "$acc" "LAST_ERROR")
@@ -376,7 +332,7 @@ generate_dashboard() {
             uptime_str="$((uptime/60))m $((uptime%60))s"
         fi
         
-        local pid=$(pidof "$acc")
+        local pid=$(pidof "$acc" 2>/dev/null)
         if [ -z "$pid" ]; then
             pid="N/A"
         fi
@@ -413,18 +369,16 @@ generate_dashboard() {
                 ;;
         esac
         
-        # Tạo chuỗi HTML (bỏ ký tự xuống dòng để sed không lỗi)
-        account_html="${account_html} <div class='${card_class}'><div class='account-info'><div class='account-icon'>${icon}</div><div><div class='account-name'>${acc}</div><span class='status-badge ${badge_class}'>${state}</span></div></div><div class='account-detail'><div class='detail-item'><span class='detail-label'>Restarts:</span><span>${restart}</span></div><div class='detail-item'><span class='detail-label'>Last Error:</span><span>${last_error}</span></div><div class='detail-item'><span class='detail-label'>Uptime:</span><span>${uptime_str}</span></div><div class='detail-item'><span class='detail-label'>PID:</span><span>${pid}</span></div></div><div class='account-actions'><button class='btn-pause' onclick='alert(\"Run: sh roblox_rejoin_v4.0_ULTIMATE.sh pause ${acc}\")'>⏸ PAUSE</button><button class='btn-resume' onclick='alert(\"Run: sh roblox_rejoin_v4.0_ULTIMATE.sh resume ${acc}\")'>▶ RESUME</button></div></div>"
+        account_html="${account_html} <div class='${card_class}'><div class='account-info'><div class='account-icon'>${icon}</div><div><div class='account-name'>${acc}</div><span class='status-badge ${badge_class}'>${state}</span></div></div><div class='account-detail'><div class='detail-item'><span class='detail-label'>Restarts:</span><span>${restart}</span></div><div class='detail-item'><span class='detail-label'>Last Error:</span><span>${last_error}</span></div><div class='detail-item'><span class='detail-label'>Uptime:</span><span>${uptime_str}</span></div><div class='detail-item'><span class='detail-label'>PID:</span><span>${pid}</span></div></div></div>"
     done
     
-    # Dùng EOFHTML (không dấu nháy) để điền biến trực tiếp
     cat > "$DASHBOARD_HTML" << EOFHTML
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roblox Auto Rejoin V4.0</title>
+    <title>Roblox Auto Rejoin V5.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -441,27 +395,8 @@ generate_dashboard() {
             padding: 20px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 10px;
-            backdrop-filter: blur(10px);
         }
-        .header h1 {
-            font-size: 32px;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-        }
-        .header .info {
-            display: flex;
-            justify-content: space-around;
-            margin-top: 15px;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
-        .info-item {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 10px 20px;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        .info-item .label { font-weight: bold; color: #ffd700; }
+        .header h1 { font-size: 32px; margin-bottom: 10px; }
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -473,125 +408,37 @@ generate_dashboard() {
             padding: 20px;
             border-radius: 10px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
         }
-        .stat-card .number {
-            font-size: 32px;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        .stat-card.active .number { color: #4ade80; }
-        .stat-card.farming .number { color: #60a5fa; }
-        .stat-card.error .number { color: #f87171; }
-        .stat-card.paused .number { color: #fbbf24; }
-        .stat-card.banned .number { color: #ef4444; }
+        .stat-card .number { font-size: 32px; font-weight: bold; margin: 10px 0; }
         .accounts {
             display: grid;
             gap: 15px;
-            margin-bottom: 20px;
         }
         .account-card {
             background: rgba(255, 255, 255, 0.1);
             padding: 20px;
             border-radius: 10px;
             border-left: 4px solid #4ade80;
-            backdrop-filter: blur(10px);
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr auto;
-            align-items: center;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 20px;
         }
         .account-card.paused { border-left-color: #fbbf24; }
         .account-card.banned { border-left-color: #ef4444; }
         .account-card.error { border-left-color: #f87171; }
-        .account-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        .account-icon { font-size: 24px; min-width: 30px; }
-        .account-name {
-            font-weight: bold;
-            font-size: 14px;
-            word-break: break-all;
-        }
-        .account-detail {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            font-size: 13px;
-        }
-        .detail-item {
-            display: flex;
-            justify-content: space-between;
-        }
-        .detail-label {
-            color: #bfdbfe;
-            font-weight: 500;
-        }
-        .account-actions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        button {
-            padding: 10px 15px;
-            border: none;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s;
-            min-width: 80px;
-        }
-        .btn-pause {
-            background: #fbbf24;
-            color: #000;
-        }
-        .btn-pause:hover {
-            background: #f59e0b;
-            transform: translateY(-2px);
-        }
-        .btn-resume {
-            background: #4ade80;
-            color: #000;
-        }
-        .btn-resume:hover {
-            background: #22c55e;
-            transform: translateY(-2px);
-        }
+        .account-info { display: flex; align-items: center; gap: 15px; }
+        .account-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+        .detail-item { display: flex; justify-content: space-between; }
         .status-badge {
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 12px;
             font-weight: bold;
-            background: rgba(255, 255, 255, 0.2);
         }
         .status-badge.running { background: #4ade80; color: #000; }
         .status-badge.paused { background: #fbbf24; color: #000; }
         .status-badge.banned { background: #ef4444; color: #fff; }
-        .status-badge.loading { background: #60a5fa; color: #fff; }
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        .controls button {
-            flex: 1;
-            min-width: 120px;
-            padding: 12px;
-        }
-        .btn-refresh {
-            background: #10b981;
-            color: #fff;
-        }
-        .btn-refresh:hover {
-            background: #059669;
-            transform: translateY(-2px);
-        }
         .footer {
             text-align: center;
             margin-top: 30px;
@@ -599,152 +446,111 @@ generate_dashboard() {
             color: #bfdbfe;
             font-size: 12px;
         }
-        .loading {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #4ade80;
-            border-radius: 50%;
-            animation: pulse 1.5s infinite;
-            margin-left: 5px;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        @media (max-width: 768px) {
-            .account-card {
-                grid-template-columns: 1fr;
-            }
-            .header h1 { font-size: 24px; }
-            .stats { grid-template-columns: repeat(2, 1fr); }
-            .account-detail { grid-template-columns: 1fr; }
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎮 Roblox Auto Rejoin V4.0</h1>
-            <div class="info">
-                <div class="info-item">
-                    <span class="label">TIME:</span>
-                    <span>${timestamp}</span>
-                </div>
-                <div class="info-item">
-                    <span class="label">PLACE_ID:</span>
-                    <span>2753915549</span>
-                </div>
-                <div class="info-item">
-                    <span class="label">STATUS:</span>
-                    <span id="sysStatus">RUNNING<span class="loading"></span></span>
-                </div>
-            </div>
+            <h1>🎮 Roblox Auto Rejoin V5.0</h1>
+            <p>Updated: ${timestamp}</p>
         </div>
-
         <div class="stats">
-            <div class="stat-card active">
+            <div class="stat-card">
                 <div class="label">ACTIVE</div>
                 <div class="number">${active}</div>
             </div>
-            <div class="stat-card farming">
+            <div class="stat-card">
                 <div class="label">FARMING</div>
                 <div class="number">${farming}</div>
             </div>
-            <div class="stat-card error">
+            <div class="stat-card">
                 <div class="label">ERROR</div>
                 <div class="number">${error_count}</div>
             </div>
-            <div class="stat-card paused">
+            <div class="stat-card">
                 <div class="label">PAUSED</div>
                 <div class="number">${paused}</div>
             </div>
-            <div class="stat-card banned">
+            <div class="stat-card">
                 <div class="label">BANNED</div>
                 <div class="number">${banned}</div>
             </div>
         </div>
-
-        <div class="controls">
-            <button class="btn-refresh" onclick="location.reload()">🔄 REFRESH</button>
-        </div>
-
         <div class="accounts">
             ${account_html}
         </div>
-
         <div class="footer">
-            📊 Updated: ${timestamp} | V4.0 ULTIMATE - Auto Everything! 🚀
+            V5.0 HYBRID - Merged Detection + Smart Restart 🚀
         </div>
     </div>
-
     <script>
-        setInterval(() => {
-            location.reload();
-        }, 10000);
+        setInterval(() => location.reload(), 10000);
     </script>
 </body>
 </html>
 EOFHTML
 }
 
-# ==================== MAIN LOOP ====================
+# ==================== MAIN ====================
 main() {
     clear
     echo "=================================="
-    echo "  ROBLOX AUTO REJOIN V4.0 FIXED"
+    echo "  ROBLOX AUTO REJOIN V5.0 HYBRID"
     echo "=================================="
     echo ""
     
     init_system
     
-    # Auto-detect packages
-    local accounts=$(auto_detect_packages)
+    # Get packages from argument or auto-detect
+    local accounts="$*"
     
     if [ -z "$accounts" ]; then
-        echo "[!] Failed to detect packages"
+        echo "[*] Auto-detecting packages..."
+        accounts=$(detect_packages)
+    fi
+    
+    if [ -z "$accounts" ]; then
+        echo "[!] No packages found!"
         exit 1
     fi
     
+    echo "[+] Found packages:"
+    echo "$accounts" | nl -v 1
+    echo ""
+    
+    # Create package map
+    create_package_map "$accounts"
+    
+    # Initialize accounts
     echo "[*] Initializing accounts..."
     for acc in $accounts; do
         init_account_state "$acc"
-        log_msg "INIT" "Starting rejoin service" "$acc"
         smart_restart "$acc" "INITIAL_START"
     done
-    
-    log_msg "SYSTEM" "=== EXECUTOR STARTED ===" ""
-    log_msg "SYSTEM" "Auto-detected accounts: $accounts" ""
     
     echo "[+] EXECUTOR RUNNING!"
     echo ""
     echo "📊 Dashboard: /sdcard/Download/roblox_dashboard.html"
-    echo "   Open with Chrome/Firefox to monitor"
-    echo ""
-    echo "📝 Logs: /data/local/tmp/roblox_executor.log"
+    echo "📝 Logs: $LOG_FILE"
     echo ""
     
-    # Main loop (Optimized - Generate dashboard after every check cycle)
+    # Main loop
     while true; do
-        # Monitor accounts
         for acc in $accounts; do
             monitor_account "$acc" &
         done
         
         wait
-        
-        # Generate dashboard immediately after each monitoring cycle for real-time updates
         generate_dashboard "$accounts"
-        
         sleep $CHECK_INTERVAL
     done
 }
 
-# ==================== SIMPLE COMMANDS ====================
-if [ "$1" = "pause" ] && [ ! -z "$2" ]; then
+# ==================== COMMANDS ====================
+if [ "$1" = "pause" ] && [ -n "$2" ]; then
     pause_account "$2"
     exit 0
-elif [ "$1" = "resume" ] && [ ! -z "$2" ]; then
+elif [ "$1" = "resume" ] && [ -n "$2" ]; then
     resume_account "$2"
     exit 0
 elif [ "$1" = "status" ]; then
@@ -764,5 +570,5 @@ elif [ "$1" = "logs" ]; then
     exit 0
 fi
 
-# ==================== RUN ====================
-main
+# Run main with all arguments as packages
+main "$@"
