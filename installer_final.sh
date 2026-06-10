@@ -103,9 +103,9 @@ fi
 # Download executor
 echo "[*] Downloading executor..."
 if command -v curl > /dev/null 2>&1; then
-    curl -s -L -o "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+    curl -s -L -o "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT-1.sh"
 else
-    wget -q -O "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT.sh"
+    wget -q -O "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT-1.sh"
 fi
 
 if [ ! -f "$INSTALL_DIR/executor.sh" ]; then
