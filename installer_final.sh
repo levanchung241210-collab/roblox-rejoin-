@@ -1,6 +1,4 @@
 #!/system/bin/sh
-echo "UID=$(id -u)"
-echo "USER=$(id)"
 # ===============================================
 # ROBLOX AUTO REJOIN - FINAL INSTALLER V2
 # Complete rewrite - Tested & Working
@@ -18,8 +16,8 @@ NC='\033[0m'
 # Paths
 INSTALL_DIR="$HOME/.roblox_auto_rejoin"
 CONFIG_FILE="$INSTALL_DIR/packages.conf"
-STATE_DIR="$HOME/.roblox_auto_rejoin/state"
-LOG_FILE="$HOME/.roblox_auto_rejoin/executor.log"
+STATE_DIR="/data/local/tmp/roblox_state"
+LOG_FILE="/data/local/tmp/roblox_executor.log"
 
 echo "${BLUE}================================${NC}"
 echo "${BLUE}  ROBLOX AUTO REJOIN INSTALLER${NC}"
@@ -41,23 +39,40 @@ fi
 echo "${GREEN}[+] Found Roblox apps:${NC}"
 echo ""
 COUNT=0
-COUNT=1
 echo "$PACKAGES" | while IFS= read -r pkg; do
+    COUNT=$((COUNT + 1))
     echo "    $COUNT. $pkg"
-    COUNT=$(expr $COUNT + 1)
 done
 
-TOTAL=$(printf "%s\n" "$PACKAGES" | wc -l)
+TOTAL=$(echo "$PACKAGES" | wc -l)
 echo ""
 echo "${GREEN}Total: $TOTAL app(s)${NC}"
 echo ""
 
-# ==================== STEP 2: AUTO SELECTION ====================
-echo "${YELLOW}[STEP 2] Auto selection${NC}"
+# ==================== STEP 2: CONFIRM SELECTION ====================
+echo "${YELLOW}[STEP 2] Confirm selection${NC}"
 echo ""
 
-echo "${GREEN}[+] Using all detected apps automatically${NC}"
-echo ""
+# Simple yes/no question
+while true; do
+    printf "${YELLOW}Use all detected apps? (y/n): ${NC}"
+    read answer
+    
+    case "$answer" in
+        y|Y)
+            echo "${GREEN}[+] Using all apps${NC}"
+            break
+            ;;
+        n|N)
+            echo "${YELLOW}[*] Manual selection not yet implemented${NC}"
+            echo "Using all apps by default"
+            break
+            ;;
+        *)
+            echo "${RED}[!] Invalid input. Please enter y or n${NC}"
+            ;;
+    esac
+done
 
 echo ""
 
@@ -103,9 +118,9 @@ fi
 # Download executor
 echo "[*] Downloading executor..."
 if command -v curl > /dev/null 2>&1; then
-    curl -s -L -o "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT-1.sh"
+    curl -s -L -o "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/executor_v5_hybrid.sh"
 else
-    wget -q -O "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/roblox_rejoin_v4.0_ULTIMATE_PERFECT-1.sh"
+    wget -q -O "$INSTALL_DIR/executor.sh" "$GITHUB_RAW/executor_v5_hybrid.sh"
 fi
 
 if [ ! -f "$INSTALL_DIR/executor.sh" ]; then
