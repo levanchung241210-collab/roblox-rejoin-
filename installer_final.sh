@@ -44,7 +44,7 @@ COUNT=0
 COUNT=1
 echo "$PACKAGES" | while IFS= read -r pkg; do
     echo "    $COUNT. $pkg"
-    COUNT=`expr $COUNT + 1`
+    COUNT=$(expr $COUNT + 1)
 done
 
 TOTAL=$(printf "%s\n" "$PACKAGES" | wc -l)
