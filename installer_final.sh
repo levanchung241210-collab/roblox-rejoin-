@@ -41,9 +41,10 @@ fi
 echo "${GREEN}[+] Found Roblox apps:${NC}"
 echo ""
 COUNT=0
+COUNT=1
 echo "$PACKAGES" | while IFS= read -r pkg; do
-    COUNT=`expr $COUNT + 1`
     echo "    $COUNT. $pkg"
+    COUNT=`expr $COUNT + 1`
 done
 
 TOTAL=$(printf "%s\n" "$PACKAGES" | wc -l)
