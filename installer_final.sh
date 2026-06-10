@@ -49,30 +49,12 @@ echo ""
 echo "${GREEN}Total: $TOTAL app(s)${NC}"
 echo ""
 
-# ==================== STEP 2: CONFIRM SELECTION ====================
-echo "${YELLOW}[STEP 2] Confirm selection${NC}"
+# ==================== STEP 2: AUTO SELECTION ====================
+echo "${YELLOW}[STEP 2] Auto selection${NC}"
 echo ""
 
-# Simple yes/no question
-while true; do
-    printf "${YELLOW}Use all detected apps? (y/n): ${NC}"
-    read answer
-    
-    case "$answer" in
-        y|Y)
-            echo "${GREEN}[+] Using all apps${NC}"
-            break
-            ;;
-        n|N)
-            echo "${YELLOW}[*] Manual selection not yet implemented${NC}"
-            echo "Using all apps by default"
-            break
-            ;;
-        *)
-            echo "${RED}[!] Invalid input. Please enter y or n${NC}"
-            ;;
-    esac
-done
+echo "${GREEN}[+] Using all detected apps automatically${NC}"
+echo ""
 
 echo ""
 
