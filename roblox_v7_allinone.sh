@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # ===============================================
-# ROBLOX AUTO REJOIN V7 - ALL-IN-ONE
-# 1 File duy nhất: Setup + Monitor + Rejoin
+# ROBLOX AUTO REJOIN V7 - NO APP LAUNCH
+# Only detect + ask + monitor (no interference)
 # ===============================================
 
 GREEN='\033[0;32m'
@@ -38,10 +38,11 @@ log_msg() {
     fi
 }
 
-# ==================== SETUP MODE ====================
+# ==================== SETUP MODE - NO APP LAUNCH ====================
 setup_mode() {
     echo "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo "${BLUE}║  ROBLOX AUTO REJOIN V7 - SETUP        ║${NC}"
+    echo "${BLUE}║   (No app will be opened)              ║${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -49,7 +50,7 @@ setup_mode() {
     echo "${YELLOW}[1/4] Creating directories...${NC}"
     mkdir -p "$INSTALL_DIR" "$STATE_DIR" "/sdcard/Download"
     : > "$LOG_FILE"
-    log_msg "SYSTEM" "V7 All-in-One initialized"
+    log_msg "SYSTEM" "V7 Setup started"
     echo "${GREEN}[+] Done${NC}"
     echo ""
     
@@ -58,7 +59,8 @@ setup_mode() {
     local packages=$(pm list packages 2>/dev/null | grep -i roblox | sed 's/package://')
     
     if [ -z "$packages" ]; then
-        echo "${RED}[!] No Roblox found! Install first.${NC}"
+        echo "${RED}[!] No Roblox packages found!${NC}"
+        echo "Please install Roblox first"
         exit 1
     fi
     
@@ -67,65 +69,77 @@ setup_mode() {
     local count=0
     echo "$packages" | while IFS= read -r pkg; do
         count=$((count + 1))
-        echo "    ${GREEN}$count.${NC} $pkg"
+        # Check if running
+        local pid=$(pidof "$pkg" 2>/dev/null)
+        local status="${RED}✗ Not running${NC}"
+        if [ -n "$pid" ]; then
+            status="${GREEN}✓ Running (PID: $pid)${NC}"
+        fi
+        
+        echo "    ${YELLOW}$count.${NC} $pkg - $status"
     done
     echo ""
     
-    echo "$packages" > "$TAB_LIST_FILE"
-    
-    # Interactive menu
-    echo "${YELLOW}[3/4] Interactive Setup${NC}"
+    # Interactive selection
+    echo "${YELLOW}[3/4] Select tabs to monitor${NC}"
+    echo ""
+    echo "${YELLOW}Important:${NC}"
+    echo "  • Open all your Roblox tabs BEFORE continuing"
+    echo "  • Get into the game (not lobby)"
+    echo "  • This tool will NOT open any apps"
     echo ""
     
     local selected_tabs=""
-    local tab_count=0
+    local count=0
     
     echo "$packages" | while IFS= read -r pkg; do
-        tab_count=$((tab_count + 1))
+        count=$((count + 1))
+        local pid=$(pidof "$pkg" 2>/dev/null)
+        
+        # Default to yes if running, no if not
+        local default="n"
+        if [ -n "$pid" ]; then
+            default="y"
+        fi
         
         while true; do
-            echo ""
-            echo "${YELLOW}Tab $tab_count: $pkg${NC}"
-            echo "  1. Yes - Monitor this tab"
-            echo "  2. No - Skip this tab"
-            echo "  3. Skip all - Use default (all tabs)"
-            echo ""
-            printf "${YELLOW}Choose (1-3): ${NC}"
+            printf "${YELLOW}$count. Monitor $pkg? (${default}): ${NC}"
             read -r choice
             
+            # Use default if empty
+            if [ -z "$choice" ]; then
+                choice="$default"
+            fi
+            
             case "$choice" in
-                1)
-                    echo "${GREEN}✓ Selected${NC}"
+                y|Y)
+                    echo "  ${GREEN}✓ Selected${NC}"
                     echo "$pkg" >> "$TAB_LIST_FILE.tmp"
                     break
                     ;;
-                2)
-                    echo "${YELLOW}⊘ Skipped${NC}"
+                n|N)
+                    echo "  ${YELLOW}⊘ Skipped${NC}"
                     break
                     ;;
-                3)
-                    echo "${GREEN}✓ Using all tabs${NC}"
-                    cp "$TAB_LIST_FILE" "$TAB_LIST_FILE.tmp"
-                    break 2
-                    ;;
                 *)
-                    echo "${RED}Invalid input${NC}"
+                    echo "  ${RED}Invalid (y/n)${NC}"
                     ;;
             esac
         done
     done
     
-    # Use selected or all
+    # Use selected or default to all
     if [ -f "$TAB_LIST_FILE.tmp" ] && [ -s "$TAB_LIST_FILE.tmp" ]; then
         mv "$TAB_LIST_FILE.tmp" "$TAB_LIST_FILE"
+    else
+        echo "$packages" > "$TAB_LIST_FILE"
     fi
     
     echo ""
     
     # Create config
-    echo "${YELLOW}[4/4] Creating config...${NC}"
+    echo "${YELLOW}[4/4] Creating configuration...${NC}"
     cat > "$CONFIG_FILE" << EOF
-# V7 Config
 PLACE_ID="$PLACE_ID"
 LINK="$LINK"
 CHECK_INTERVAL=$CHECK_INTERVAL
@@ -140,58 +154,58 @@ EOF
     echo "${GREEN}[+] Done${NC}"
     echo ""
     
-    # Create aliases
+    # Setup aliases
     PROFILE="$HOME/.bashrc"
     [ ! -f "$PROFILE" ] && PROFILE="$HOME/.profile"
     
     if ! grep -q "roblox-rejoin" "$PROFILE" 2>/dev/null; then
         cat >> "$PROFILE" << 'ALIAS'
 
-alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh start"
-alias roblox-pause="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh pause"
-alias roblox-resume="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh resume"
+alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh"
+alias roblox-status="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh status"
+alias roblox-logs="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh logs"
 ALIAS
     fi
     
-    # Show selected tabs
+    # Summary
     echo "${BLUE}════════════════════════════════════════${NC}"
-    echo "${GREEN}Selected tabs:${NC}"
+    echo "${GREEN}Selected tabs to monitor:${NC}"
     echo ""
     cat "$TAB_LIST_FILE" | nl -v 1
     echo ""
     
-    # Final instructions
+    # Final confirmation
     echo "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo "${GREEN}  ✅ SETUP COMPLETE!${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
-    echo "${YELLOW}NEXT STEPS:${NC}"
+    echo "${YELLOW}Next:${NC}"
     echo ""
-    echo "1. Open selected tabs in Roblox"
-    echo "   ${GREEN}Open each + login to Blox Fruits${NC}"
-    echo ""
-    echo "2. Make sure you're IN-GAME"
-    echo "   ${GREEN}Get into the game map (not lobby!)${NC}"
-    echo ""
-    echo "3. Start monitoring"
-    echo "   ${GREEN}roblox-rejoin${NC}"
-    echo ""
-    echo "4. View dashboard"
-    echo "   ${GREEN}File: /sdcard/Download/roblox_dashboard.html${NC}"
-    echo ""
-    echo "${BLUE}════════════════════════════════════════${NC}"
-    echo ""
-    
-    # Ask to continue
-    echo ""
-    printf "${YELLOW}Ready to start monitor? (y/n): ${NC}"
+    printf "${YELLOW}Start monitoring now? (y/n): ${NC}"
     read -r start_now
     
     if [ "$start_now" = "y" ] || [ "$start_now" = "Y" ]; then
-        sleep 2
-        monitor_mode
+        echo ""
+        echo "${GREEN}[+] Starting monitor...${NC}"
+        echo "${GREEN}[+] Keep Roblox on screen${NC}"
+        echo ""
+        
+        # Start monitor in background
+        nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
+        
+        sleep 1
+        echo "${GREEN}✅ Monitor is running!${NC}"
+        echo ""
+        echo "Dashboard: /sdcard/Download/roblox_dashboard.html"
+        echo ""
+        
+        # Exit to show Roblox
+        exit 0
     else
-        echo "${YELLOW}Setup saved. Run 'roblox-rejoin' to start monitor later.${NC}"
+        echo ""
+        echo "${YELLOW}Setup saved!${NC}"
+        echo "Run: ${GREEN}roblox-rejoin${NC}"
+        exit 0
     fi
 }
 
@@ -264,14 +278,12 @@ do_rejoin() {
     local restart_count=$(read_state "$pkg" "RESTART_COUNT")
     
     case "$error" in
-        # Soft rejoin
         277|279)
-            log_msg "REJOIN" "Error $error - Soft" "$pkg"
+            log_msg "REJOIN" "Error $error - Soft rejoin" "$pkg"
             sleep 5
             am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
             ;;
         
-        # Hard restart
         268|271)
             log_msg "REJOIN" "Error $error - Restart" "$pkg"
             [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
@@ -285,7 +297,6 @@ do_rejoin() {
             am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
             ;;
         
-        # ANR - Full reset
         ANR)
             log_msg "REJOIN" "ANR - Full reset" "$pkg"
             [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
@@ -299,17 +310,14 @@ do_rejoin() {
             am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
             ;;
         
-        # Permanent - Ban
         264|267|273)
-            log_msg "REJOIN" "Permanent error $error - Ban" "$pkg"
+            log_msg "REJOIN" "Permanent error $error" "$pkg"
             write_state "$pkg" "STATUS" "BANNED"
-            write_state "$pkg" "LAST_ERROR" "$error"
             return 1
             ;;
         
-        # Normal crash
         *)
-            log_msg "REJOIN" "Crash - Normal restart" "$pkg"
+            log_msg "REJOIN" "Crash - Restart" "$pkg"
             [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
             restart_count=$((restart_count + 1))
             write_state "$pkg" "RESTART_COUNT" "$restart_count"
@@ -446,22 +454,9 @@ EOF
 
 # ==================== MONITOR MODE ====================
 monitor_mode() {
-    clear
-    echo "${BLUE}════════════════════════════════════════${NC}"
-    echo "${GREEN}  ROBLOX MONITOR V7 - RUNNING${NC}"
-    echo "${BLUE}════════════════════════════════════════${NC}"
-    echo ""
+    # Silent mode - no terminal output
+    [ ! -f "$TAB_LIST_FILE" ] && exit 1
     
-    [ ! -f "$TAB_LIST_FILE" ] && { echo "${RED}[!] Run setup first${NC}"; exit 1; }
-    
-    echo "[+] Monitoring tabs..."
-    cat "$TAB_LIST_FILE" | nl -v 1
-    echo ""
-    echo "Dashboard: /sdcard/Download/roblox_dashboard.html"
-    echo "Logs: $LOG_FILE"
-    echo ""
-    
-    # Main loop
     while true; do
         cat "$TAB_LIST_FILE" | while IFS= read -r pkg; do
             monitor_tab "$pkg" &
@@ -474,10 +469,15 @@ monitor_mode() {
     done
 }
 
-# ==================== COMMAND MODE ====================
+# ==================== COMMANDS ====================
 case "$1" in
-    setup|init)
+    setup)
         setup_mode
+        exit 0
+        ;;
+    
+    monitor)
+        monitor_mode
         exit 0
         ;;
     
@@ -524,11 +524,15 @@ case "$1" in
         ;;
     
     *)
-        # Default: Check if setup done
+        # Check if setup done
         if [ ! -f "$CONFIG_FILE" ]; then
             setup_mode
         else
-            monitor_mode
+            # Run monitor in background
+            nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
+            sleep 1
+            echo "[+] Monitor started in background"
+            exit 0
         fi
         ;;
 esac
