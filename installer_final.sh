@@ -46,7 +46,7 @@ echo "$PACKAGES" | while IFS= read -r pkg; do
     echo "    $COUNT. $pkg"
 done
 
-TOTAL=$(echo "$PACKAGES" | wc -l)
+TOTAL=$(printf "%s\n" "$PACKAGES" | wc -l)
 echo ""
 echo "${GREEN}Total: $TOTAL app(s)${NC}"
 echo ""
