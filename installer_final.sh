@@ -16,8 +16,9 @@ NC='\033[0m'
 # Paths
 INSTALL_DIR="$HOME/.roblox_auto_rejoin"
 CONFIG_FILE="$INSTALL_DIR/packages.conf"
-STATE_DIR="/data/local/tmp/roblox_state"
-LOG_FILE="/data/local/tmp/roblox_executor.log"
+STATE_DIR="$HOME/.roblox_auto_rejoin/state"
+LOG_FILE="$HOME/.roblox_auto_rejoin/executor.log"
+roblox_executor.log"
 
 echo "${BLUE}================================${NC}"
 echo "${BLUE}  ROBLOX AUTO REJOIN INSTALLER${NC}"
