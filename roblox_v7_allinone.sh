@@ -291,7 +291,7 @@ do_restart() {
     init_state "$pkg"
     
     local restart=$(read_state "$pkg" "RESTART_COUNT")
-    [ $restart -gt $MAX_RESTARTS ] && return 1
+    [ "$restart" -ge "$MAX_RESTARTS" ] && return 1
     
     restart=$((restart + 1))
     write_state "$pkg" "RESTART_COUNT" "$restart"
@@ -364,25 +364,28 @@ monitor_loop() {
         echo "Time: $(date)"
         echo ""
 
-        while read -r pkg; do
-            monitor_tab "$pkg"
+while read -r pkg; do
+    echo "[CHECK] $pkg"
 
-            score=$(read_state "$pkg" "HEALTH_SCORE")
-            error=$(read_state "$pkg" "LAST_ERROR")
+    monitor_tab "$pkg"
 
-            echo "$pkg"
-            echo "  Score : $score"
-            echo "  Error : $error"
-            echo ""
-        done < "$TAB_LIST_FILE"
+    score=$(read_state "$pkg" "HEALTH_SCORE")
+[ -z "$score" ] && score=0
+state=$(score_to_state "$score")
+error=$(read_state "$pkg" "LAST_ERROR")
 
-        process_queue
+    echo "  State : $state"
+echo "  Score : $score"
+echo "  Error : $error"
+done < "$TAB_LIST_FILE"
 
-        echo "Sleep ${CHECK_INTERVAL}s"
-        sleep "$CHECK_INTERVAL"
-    done
+process_queue
+generate_dashboard
+
+echo "Sleep ${CHECK_INTERVAL}s"
+sleep "$CHECK_INTERVAL"
+done
 }
-
 # ==================== DASHBOARD ====================
 generate_dashboard() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
@@ -396,7 +399,8 @@ generate_dashboard() {
         [ ! -f "$sf" ] && continue
         
         local score=$(grep "^HEALTH_SCORE=" "$sf" | cut -d'=' -f2)
-        local state=$(score_to_state $score)
+[ -z "$score" ] && score=0
+local state=$(score_to_state "$score")
         local error=$(grep "^LAST_ERROR=" "$sf" | cut -d'=' -f2)
         local restart=$(grep "^RESTART_COUNT=" "$sf" | cut -d'=' -f2)
         
@@ -423,7 +427,8 @@ status)
     echo "Status:"
     while read -r pkg; do
         score=$(read_state "$pkg" "HEALTH_SCORE")
-        state=$(score_to_state "$score")
+[ -z "$score" ] && score=0
+state=$(score_to_state "$score")
         error=$(read_state "$pkg" "LAST_ERROR")
         echo "  $pkg | $state (score:$score) | Error: $error"
     done < "$TAB_LIST_FILE"
@@ -440,3 +445,4 @@ status)
         sh "$0" monitor
     fi
     ;;
+esac
