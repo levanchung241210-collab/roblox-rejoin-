@@ -1,6 +1,6 @@
-if [ "$(id -u)" != "0" ]; then
-    exec su -c sh "$0" "$@"
-fi
+echo "===================="
+echo "UID: $(id)"
+echo "===================="
 #!/system/bin/sh
 # ===============================================
 # ROBLOX AUTO REJOIN - FINAL INSTALLER V2
