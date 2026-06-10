@@ -1,7 +1,9 @@
+cat << 'EOF' > roblox_auto_rejoin.sh
 #!/system/bin/sh
 # =================================================================
-# ROBLOX AUTO REJOIN V11.0 - LIVE RAM PROCESS ISOLATOR
-# Patched: Dynamic Tab Scanner + Live RAM Extraction + Auto Connect Termux
+# ROBLOX AUTO REJOIN V12.0 - UNIVERSAL MULTI-PROFILE RADAR
+# Optimized for: Cloud Phone Clones, Multi-User, VNG & Global Versions
+# Shareable & Compatible with all Cloner Apps
 # =================================================================
 
 GREEN='\033[0;32m'
@@ -47,48 +49,95 @@ get_next_sequence() {
 }
 
 log_msg() {
-    local level=$1 msg=$2 pkg=$3
+    local level=$1 msg=$2 token=$3
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    if [ -z "$pkg" ]; then
+    if [ -z "$token" ]; then
         echo "[$timestamp] [$level] $msg" >> "$LOG_FILE"
     else
-        echo "[$timestamp] [$pkg] [$level] $msg" >> "$LOG_FILE"
+        echo "[$timestamp] [$token] [$level] $msg" >> "$LOG_FILE"
     fi
 }
 
-# ==================== CƠ CHẾ QUÉT TAB TRỰC TIẾP TỪ RAM ====================
+# ==================== PHÂN TÍCH USER ID & CHẾ ĐỘ QUÉT V12.0 ====================
 setup_wizard() {
     clear
     echo "\n${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo "${BLUE}║   ROBLOX AUTO REJOIN V11.0 - RAM SCAN   ║${NC}"
+    echo "${BLUE}║  ROBLOX AUTO REJOIN V12.0 - RADAR FIX  ║${NC}"
+    echo "${BLUE}║     HỖ TRỢ MỌI LOẠI APP CLONE / USER   ║${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}\n"
     
-    : > "$LOG_FILE"
-    echo "${YELLOW}[!] ĐANG QUÉT ĐỊA CHỈ CÁC TAB ĐANG TREO TRONG RAM...${NC}"
-    echo "${RED}⚠️ LƯU Ý: Hãy chắc chắn ông ĐANG MỞ hoặc TREO tất cả các bản clone trước khi bấm!${NC}\n"
-    sleep 1
-
-    # Bắt bài địa chỉ ẩn từ Tiến trình RAM (ps) và Trình quản lý Activity Stack độc lập
-    local ram_pkgs=$(ps -A -o NAME 2>/dev/null | grep -i "roblox")
-    local old_ps_pkgs=$(ps 2>/dev/null | awk '{print $9}' | grep -i "roblox")
-    local activity_pkgs=$(dumpsys activity activities 2>/dev/null | grep -oE "com\.[a-zA-Z0-9._]+" | grep -i "roblox")
+    echo "${YELLOW}[⚙️] CHỌN CHẾ ĐỘ QUÉT ĐỂ SHARE CHO BẠN BÈ:${NC}"
+    echo "  1) Quét siêu sâu (Tự động bới RAM + Tìm User ID ẩn của Cloud Phone) -> Khuyên dùng"
+    echo "  2) Chọn thủ công từ danh sách ứng dụng đã cài trên máy"
+    echo "  3) Tự nhập tay tên Package Name (Dành cho cloner đặc biệt)"
+    echo "--------------------------------------------------------"
+    printf "Nhập lựa chọn của ông (1-3): "
+    read mode_choice
     
-    # Gộp tất cả địa chỉ tìm được và lọc trùng lặp
-    local final_detected=$(echo "$ram_pkgs\n$old_ps_pkgs\n$activity_pkgs" | grep -v '^$' | sort -u)
+    : > "$TAB_LIST_FILE"
+    : > "$LOG_FILE"
 
-    if [ -n "$final_detected" ]; then
-        echo "${GREEN}✅ ĐÃ TÌM THẤY ĐỊA CHỈ ẨN CỦA CÁC TAB ĐANG TREO:${NC}"
-        local i=1
-        echo "$final_detected" > "$TAB_LIST_FILE"
-        while read -r detected_pkg; do
-            echo "  👉 Tab $i: $detected_pkg"
-            i=$((i + 1))
-        done < "$TAB_LIST_FILE"
-        echo "----------------------------------------------------------------"
+    if [ "$mode_choice" = "1" ]; then
+        echo "\n${YELLOW}[!] Đang quét toàn bộ phân vùng RAM và không gian Multi-User...${NC}"
+        echo "${RED}⚠️ Nhớ MỞ SẴN hoặc TREO toàn bộ các bản sao Roblox lên nhé!${NC}\n"
+        sleep 2
+        
+        # Quét và bóc tách cả tên gói lẫn User ID chạy ngầm (u0_, u10_, u11_...)
+        ps -A -o USER,NAME 2>/dev/null | grep -E -i "roblox|vnggames" | while read -r user name; do
+            local uid="0"
+            if echo "$user" | grep -q "_"; then
+                uid=$(echo "$user" | cut -d'_' -f1 | tr -d 'u')
+            fi
+            case "$uid" in [0-9]*) ;; *) uid="0" ;; esac
+            echo "$name|$uid"
+        done | sort -u > "$TAB_LIST_FILE"
+        
+    elif [ "$mode_choice" = "2" ]; then
+        echo "\n${YELLOW}[!] Đang tải danh sách ứng dụng hệ thống...${NC}"
+        local raw_apps=$(pm list packages -3 | cut -d':' -f2 | sort -u)
+        if [ -z "$raw_apps" ]; then raw_apps=$(pm list packages | cut -d':' -f2 | sort -u); fi
+        
+        echo "--------------------------------------------------------"
+        local idx=1
+        echo "$raw_apps" | while read -r app; do
+            echo "  $idx) $app"
+            idx=$((idx + 1))
+        done
+        echo "--------------------------------------------------------"
+        printf "Nhập số thứ tự các app muốn farm (ví dụ nếu chọn nhiều mục thì gõ cách nhau: 1 3 4): "
+        read app_choices
+        
+        local current_idx=1
+        echo "$raw_apps" | while read -r app; do
+            for choice in $app_choices; do
+                if [ "$current_idx" -eq "$choice" ]; then
+                    echo "$app|0" >> "$TAB_LIST_FILE"
+                fi
+            done
+            current_idx=$((current_idx + 1))
+        done
     else
-        echo "${RED}❌ Không tìm thấy tab Roblox nào đang chạy trong RAM!${NC}"
-        echo "${YELLOW}[!] Tự động nạp cấu hình mặc định (com.roblox.client)...${NC}"
-        echo "com.roblox.client" > "$TAB_LIST_FILE"
+        echo "\n${YELLOW}[!] Nhập Package Name bằng tay (Cách nhau bằng dấu cách):${NC}"
+        printf "Ví dụ (com.roblox.client com.roblox.client.vnggames): "
+        read manual_pkgs
+        for mpkg in $manual_pkgs; do
+            echo "$mpkg|0" >> "$TAB_LIST_FILE"
+        done
+    fi
+
+    # Hiển thị kết quả kiểm duyệt
+    if [ -s "$TAB_LIST_FILE" ]; then
+        echo "\n${GREEN}✅ ĐÃ THIẾT LẬP THÀNH CÔNG DANH SÁCH GIÁM SÁT PING BÀI:${NC}"
+        local line_idx=1
+        while read -r tab_entry || [ -n "$tab_entry" ]; do
+            local p=$(echo "$tab_entry" | cut -d'|' -f1)
+            local u=$(echo "$tab_entry" | cut -d'|' -f2)
+            echo "  👉 Tab $line_idx: Gói [$p] ➜ User Không gian [$u]"
+            line_idx=$((line_idx + 1))
+        done < "$TAB_LIST_FILE"
+    else
+        echo "\n${RED}❌ Không tìm thấy hoặc nhập sai cấu hình! Nạp mặc định...${NC}"
+        echo "com.roblox.client.vnggames|0" > "$TAB_LIST_FILE"
     fi
 
     {
@@ -104,19 +153,16 @@ setup_wizard() {
         echo "LOG_FILE=\"$LOG_FILE\""
     } > "$CONFIG_FILE"
     
-    echo "\n${GREEN}✅ CẤU HÌNH HOÀN TẤT! ĐANG STREAM MÀN HÌNH GIÁM SÁT REAL-TIME...${NC}"
-    echo "${YELLOW}(Xem mệt rồi thì bấm Ctrl + C để thoát xem, tool vẫn chạy ngầm 24/7)${NC}\n"
+    echo "\n${GREEN}🚀 KHỞI CHẠY HỆ THỐNG GIÁM SÁT LIÊN TỤC V12.0...${NC}"
     sleep 2
-    
-    # Kích hoạt chạy ngầm và tự động lôi màn hình giám sát lên Termux luôn theo ý ông
     nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
     sleep 1
     tail -f "$LOG_FILE"
 }
 
-# ==================== STATE ENGINE ====================
+# ==================== STATE ENGINE FOR MULTI-USER ====================
 init_state() {
-    local pkg=$1 sf="$STATE_DIR/${pkg}.state"
+    local token=$1 sf="$STATE_DIR/${token}.state"
     [ -f "$sf" ] && return
     local now=$(date +%s)
     {
@@ -137,7 +183,7 @@ read_state() {
 }
 
 write_state() {
-    local pkg=$1 key=$2 value=$3 sf="$STATE_DIR/${pkg}.state" tmp_sf="$sf.tmp"
+    local token=$1 key=$2 value=$3 sf="$STATE_DIR/${token}.state" tmp_sf="$sf.tmp"
     if [ -f "$sf" ]; then
         if grep -q "^${key}=" "$sf" 2>/dev/null; then
             sed "s|^${key}=.*|${key}=${value}|g" "$sf" > "$tmp_sf"
@@ -151,11 +197,12 @@ write_state() {
 }
 
 get_pid_for_package() {
-    local pkg=$1
-    local pid=$(pidof "$pkg" 2>/dev/null | awk '{print $1}')
-    if [ -z "$pid" ]; then
-        pid=$(ps -A 2>/dev/null | grep "$pkg" | awk '{print $2}' | head -1)
-        [ -z "$pid" ] && pid=$(ps 2>/dev/null | grep "$pkg" | awk '{print $1}' | head -1)
+    local pkg=$1 uid=$2 pid=""
+    if [ "$uid" -eq 0 ]; then
+        pid=$(pidof "$pkg" 2>/dev/null | awk '{print $1}')
+        [ -z "$pid" ] && pid=$(ps -A 2>/dev/null | grep "$pkg" | awk '{print $2}' | head -1)
+    else
+        pid=$(ps -A -o USER,PID,NAME 2>/dev/null | grep "u${uid}_" | grep "$pkg" | awk '{print $2}' | head -1)
     fi
     echo "$pid"
 }
@@ -183,7 +230,7 @@ detect_ui_error() {
 }
 
 check_process_health() {
-    local pkg=$1 pid=$2 fg_app=$3
+    local token=$1 pid=$2 fg_app=$3 pkg=$4
     local rss_kb=$(grep -i "VmRSS" "/proc/$pid/status" 2>/dev/null | awk '{print $2}')
     if [ -z "$rss_kb" ] || [ "$rss_kb" -le 0 ]; then
         echo "ZOMBIE_EMPTY_STATUS_RSS" && return 0
@@ -194,176 +241,189 @@ check_process_health() {
         local utime=$(echo "$stat_line" | awk '{print $14}')
         local stime=$(echo "$stat_line" | awk '{print $15}')
         local current_ticks=$((utime + stime))
-        local last_ticks=$(read_state "$pkg" "LAST_CPU_TICKS")
-        local freeze_cnt=$(read_state "$pkg" "FREEZE_COUNT")
+        local last_ticks=$(read_state "$token" "LAST_CPU_TICKS")
+        local freeze_cnt=$(read_state "$token" "FREEZE_COUNT")
         [ -z "$last_ticks" ] && last_ticks=0
         [ -z "$freeze_cnt" ] && freeze_cnt=0
         
-        write_state "$pkg" "LAST_CPU_TICKS" "$current_ticks"
+        write_state "$token" "LAST_CPU_TICKS" "$current_ticks"
         
         if [ "$last_ticks" -gt 0 ] && [ "$current_ticks" -eq "$last_ticks" ]; then
             freeze_cnt=$((freeze_cnt + 1))
-            write_state "$pkg" "FREEZE_COUNT" "$freeze_cnt"
+            write_state "$token" "FREEZE_COUNT" "$freeze_cnt"
             local max_allowed_freeze=4
             [ "$fg_app" != "$pkg" ] && max_allowed_freeze=40 
             if [ "$freeze_cnt" -ge "$max_allowed_freeze" ]; then
                 echo "ZOMBIE_FROZEN_TICKS" && return 0
             fi
         else
-            write_state "$pkg" "FREEZE_COUNT" "0"
+            write_state "$token" "FREEZE_COUNT" "0"
         fi
     fi
     return 1
 }
 
-# ==================== QUEUE ENGINE ====================
 enqueue_restart() {
-    local pkg=$1 error=$2
-    ls "$QUEUE_DIR"/*_*_${pkg}.queue >/dev/null 2>&1 && return
+    local pkg=$1 uid=$2 error=$3 token="${pkg}_u${uid}"
+    ls "$QUEUE_DIR"/*_*_"${token}".queue >/dev/null 2>&1 && return
     local now=$(date +%s)
     local seq=$(get_next_sequence "$now")
-    local qf="$QUEUE_DIR/${now}_${seq}_${pkg}.queue"
+    local qf="$QUEUE_DIR/${now}_${seq}_${token}.queue"
     {
         echo "PKG=$pkg"
+        echo "UID=$uid"
         echo "ERROR=$error"
         echo "TIME=$now"
     } > "$qf.tmp"
     mv "$qf.tmp" "$qf"
-    log_msg "QUEUE" "Đã đưa vào hàng đợi xử lý lỗi [$error]" "$pkg"
+    log_msg "QUEUE" "Đã xếp hàng chờ xử lý lỗi [$error]" "$token"
 }
 
 process_queue() {
     local first_queue=$(ls "$QUEUE_DIR"/*_*_*.queue 2>/dev/null | sort | head -1)
     [ -z "$first_queue" ] && return
     local pkg=$(grep "^PKG=" "$first_queue" | cut -d'=' -f2)
+    local uid=$(grep "^UID=" "$first_queue" | cut -d'=' -f2)
     local error=$(grep "^ERROR=" "$first_queue" | cut -d'=' -f2)
-    do_restart "$pkg" "$error"
+    do_restart "$pkg" "$uid" "$error"
     local ret_code=$?
     [ "$ret_code" -eq 0 ] || [ "$ret_code" -eq 2 ] && rm -f "$first_queue"
 }
 
-# ==================== KHỞI ĐỘNG ĐÍCH DANH CHO CLONE APP ====================
 do_restart() {
-    local pkg=$1 error=$2 now=$(date +%s)
-    init_state "$pkg"
+    local pkg=$1 uid=$2 error=$3 now=$(date +%s) token="${pkg}_u${uid}"
+    init_state "$token"
     
-    local restart_day=$(read_state "$pkg" "RESTART_DAY")
-    local restart=$(read_state "$pkg" "RESTART_COUNT")
+    local restart_day=$(read_state "$token" "RESTART_DAY")
+    local restart=$(read_state "$token" "RESTART_COUNT")
     [ -z "$restart_day" ] && restart_day=$now
     [ -z "$restart" ] && restart=0
     
     if [ $((now - restart_day)) -gt 86400 ]; then
         restart_day=$now; restart=0
-        write_state "$pkg" "RESTART_DAY" "$restart_day"
-        write_state "$pkg" "RESTART_COUNT" "0"
+        write_state "$token" "RESTART_DAY" "$restart_day"
+        write_state "$token" "RESTART_COUNT" "0"
     fi
     
     if [ "$restart" -ge "$MAX_RESTARTS" ]; then
-        log_msg "ABORT" "Chạm giới hạn restart 24h ($restart/$MAX_RESTARTS)." "$pkg"
+        log_msg "ABORT" "Chạm giới hạn tối đa cứu hộ 24h ($restart/$MAX_RESTARTS)." "$token"
         return 2
     fi
 
-    local restart_hour=$(read_state "$pkg" "RESTART_HOUR")
-    local restarts_this_hour=$(read_state "$pkg" "RESTARTS_THIS_HOUR")
+    local restart_hour=$(read_state "$token" "RESTART_HOUR")
+    local restarts_this_hour=$(read_state "$token" "RESTARTS_THIS_HOUR")
     [ -z "$restart_hour" ] && restart_hour=$now
     [ -z "$restarts_this_hour" ] && restarts_this_hour=0
     
     if [ $((now - restart_hour)) -gt 3600 ]; then
         restart_hour=$now; restarts_this_hour=0
-        write_state "$pkg" "RESTART_HOUR" "$restart_hour"
-        write_state "$pkg" "RESTARTS_THIS_HOUR" "0"
+        write_state "$token" "RESTART_HOUR" "$restart_hour"
+        write_state "$token" "RESTARTS_THIS_HOUR" "0"
     fi
     
     if [ "$restarts_this_hour" -ge "$MAX_RESTARTS_PER_HOUR" ]; then
-        log_msg "PROTECT" "Quá giới hạn restart trong 1 giờ. Đang chờ hạ nhiệt..." "$pkg"
+        log_msg "PROTECT" "Tần suất lỗi quá nhanh! Chờ hạ nhiệt..." "$token"
         return 1
     fi
     
     restart=$((restart + 1))
     restarts_this_hour=$((restarts_this_hour + 1))
     
-    write_state "$pkg" "RESTART_COUNT" "$restart"
-    write_state "$pkg" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
-    write_state "$pkg" "LAST_ERROR" "$error"
+    write_state "$token" "RESTART_COUNT" "$restart"
+    write_state "$token" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
+    write_state "$token" "LAST_ERROR" "$error"
     
-    log_msg "RESTART" "Đang khởi động lại tab -> Nguyên nhân: $error" "$pkg"
+    log_msg "RESTART" "Tiến hành cứu hộ tự động ➜ Lý do: $error" "$token"
     
-    # Diệt và kích hoạt chính xác địa chỉ app clone
-    am force-stop "$pkg" 2>/dev/null
+    # Tiêu diệt chính xác theo từng Không gian (User ID) để không sập tab khác
+    if [ "$uid" -eq 0 ]; then
+        am force-stop "$pkg" 2>/dev/null
+    else
+        am force-stop --user "$uid" "$pkg" 2>/dev/null
+        local target_pid=$(get_pid_for_package "$pkg" "$uid")
+        [ -n "$target_pid" ] && kill -9 "$target_pid" 2>/dev/null
+    fi
     sleep 2
     
-    write_state "$pkg" "LAST_CPU_TICKS" "0"
-    write_state "$pkg" "FREEZE_COUNT" "0"
+    write_state "$token" "LAST_CPU_TICKS" "0"
+    write_state "$token" "FREEZE_COUNT" "0"
     
-    am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
+    # Kích hoạt biệt lập theo User Space ID
+    if [ "$uid" -eq 0 ]; then
+        am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
+    else
+        am start --user "$uid" -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
+    fi
     
     local verify_pid=""
     for i in 1 2 3 4 5; do
         sleep 3
-        verify_pid=$(get_pid_for_package "$pkg")
+        verify_pid=$(get_pid_for_package "$pkg" "$uid")
         [ -n "$verify_pid" ] && break
     done
     
     if [ "$verify_pid" -z ]; then
-        log_msg "CRITICAL" "Không tìm thấy PID sau khi restart!" "$pkg"
-        write_state "$pkg" "HEALTH_SCORE" "0"
+        log_msg "CRITICAL" "Không bắt được PID sau khi khởi chạy lại!" "$token"
+        write_state "$token" "HEALTH_SCORE" "0"
         return 0
     fi
     
-    log_msg "SUCCESS" "Khởi động tab thành công trên PID mới [$verify_pid]." "$pkg"
-    write_state "$pkg" "LAST_CHECK" "$now"
+    log_msg "SUCCESS" "Cứu hộ thành công! Đang chạy trên PID: [$verify_pid]." "$token"
+    write_state "$token" "LAST_CHECK" "$now"
     return 0
 }
 
 # ==================== MONITOR MAIN LOOP ====================
 monitor_loop() {
-    [ ! -f "$TAB_LIST_FILE" ] && { echo "Thiếu file cấu hình danh sách tab."; exit 1; }
+    [ ! -f "$TAB_LIST_FILE" ] && { echo "Thiếu tệp cấu hình danh sách tab farm."; exit 1; }
 
     while true; do
         clear
-        echo "===================================================="
-        echo " 🎮 ROBLOX AUTO REJOIN V11.0 - RAM PROCESS ISOLATOR"
-        echo "===================================================="
+        echo "=========================================================="
+        echo " 🎮 ROBLOX AUTO REJOIN V12.0 - UNIVERSAL SPACE RADAR"
+        echo "=========================================================="
         echo "Thời gian: $(date)\n"
 
         FG_APP=$(get_foreground_app)
         UI_DUMPED=0 
 
-        while read -r pkg || [ -n "$pkg" ]; do
-            [ -z "$pkg" ] && continue
+        while read -r tab_entry || [ -n "$tab_entry" ]; do
+            [ -z "$tab_entry" ] && continue
+            local pkg=$(echo "$tab_entry" | cut -d'|' -f1)
+            local uid=$(echo "$tab_entry" | cut -d'|' -f2)
+            [ -z "$uid" ] && uid="0"
             
-            echo "[QUÉT RAM] ➜ $pkg"
-            init_state "$pkg"
-            local main_pid=$(get_pid_for_package "$pkg")
+            local token="${pkg}_u${uid}"
+            echo "[🎯 KIỂM TRA RADAR] ➜ Gói: $pkg | Không gian: u$uid"
             
-            # CHỐT 1: KIỂM TRA SỐNG CHẾT TIẾN TRÌNH
+            init_state "$token"
+            local main_pid=$(get_pid_for_package "$pkg" "$uid")
+            
             if [ -z "$main_pid" ]; then
-                write_state "$pkg" "HEALTH_SCORE" "0"
-                enqueue_restart "$pkg" "PROCESS_MISSING"
+                write_state "$token" "HEALTH_SCORE" "0"
+                enqueue_restart "$pkg" "$uid" "PROCESS_MISSING"
                 continue
             fi
             
-            # CHỐT 2: ĐO ĐỘ ĐÔNG CỨNG CPU CỦA TAB CLONE
-            local internal_issue=$(check_process_health "$pkg" "$main_pid" "$FG_APP")
+            local internal_issue=$(check_process_health "$token" "$main_pid" "$FG_APP" "$pkg")
             if [ -n "$internal_issue" ]; then
-                write_state "$pkg" "HEALTH_SCORE" "15"
-                enqueue_restart "$pkg" "$internal_issue"
+                write_state "$token" "HEALTH_SCORE" "15"
+                enqueue_restart "$pkg" "$uid" "$internal_issue"
                 continue
             fi
             
-            # CHỐT 3: QUÉT LỖI MÀN HÌNH (NẾU THẰNG CLONE ĐÓ ĐANG HIỂN THỊ CHÍNH)
             if [ "$FG_APP" = "$pkg" ]; then
                 local ui_err=$(detect_ui_error "$pkg")
                 if [ -n "$ui_err" ]; then
-                    write_state "$pkg" "HEALTH_SCORE" "40"
-                    enqueue_restart "$pkg" "UI_ERR_$ui_err"
+                    write_state "$token" "HEALTH_SCORE" "40"
+                    enqueue_restart "$pkg" "$uid" "UI_ERR_$ui_err"
                     continue
                 fi
             fi
             
-            write_state "$pkg" "HEALTH_SCORE" "100"
-            echo "  PID: $main_pid | Sức khỏe: 100/100 | Trạng thái: HOẠT ĐỘNG TỐT"
-            echo "----------------------------------------------------"
+            write_state "$token" "HEALTH_SCORE" "100"
+            echo "  ➜ PID: $main_pid | Sức khỏe: 100/100 | Trạng thái: ỔN ĐỊNH ✅"
+            echo "----------------------------------------------------------"
         done < "$TAB_LIST_FILE"
 
         process_queue
@@ -372,22 +432,21 @@ monitor_loop() {
     done
 }
 
-# ==================== GENERATE DASHBOARD HTML ====================
 generate_dashboard() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S') html="" active=0 dead=0
     for sf in "$STATE_DIR"/*.state; do
         [ ! -f "$sf" ] && continue
-        local pkg=$(basename "$sf" .state)
+        local token=$(basename "$sf" .state)
         local score=$(grep "^HEALTH_SCORE=" "$sf" | cut -d'=' -f2)
         local error=$(grep "^LAST_ERROR=" "$sf" | cut -d'=' -f2)
         local restart=$(grep "^RESTART_COUNT=" "$sf" | cut -d'=' -f2)
         
         if [ "$score" -eq 100 ]; then active=$((active + 1)); color="4ade80"; else dead=$((dead + 1)); color="f87171"; fi
-        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>Gói: $pkg</b> | Điểm số: $score/100 | Lỗi gần nhất: $error | Số lần restart: $restart</div>"
+        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>Phân vùng: $token</b> | Điểm: $score/100 | Lỗi: $error | Cứu hộ: $restart lần</div>"
     done
     
     cat > "$DASHBOARD_HTML.tmp" << EOF
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V11.0 Live Dashboard</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V11.0 - RAM Live Panel</h1><p>Cập nhật: $timestamp</p><div class="stat">Tab đang chạy: <b style="color:#4ade80;">$active</b></div><div class="stat">Tab đang lỗi/cứu hộ: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V12.0 Live Dashboard</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V12.0 - Universal Panel</h1><p>Cập nhật: $timestamp</p><div class="stat">Đang farm ngon: <b style="color:#4ade80;">$active</b></div><div class="stat">Đang xử lý/Lỗi: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
 EOF
     mv "$DASHBOARD_HTML.tmp" "$DASHBOARD_HTML"
 }
@@ -406,3 +465,5 @@ case "$1" in
     monitor) monitor_loop ;;
     *) [ ! -f "$CONFIG_FILE" ] && setup_wizard || sh "$0" monitor ;;
 esac
+EOF
+chmod +x roblox_auto_rejoin.sh
