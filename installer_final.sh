@@ -42,7 +42,7 @@ echo "${GREEN}[+] Found Roblox apps:${NC}"
 echo ""
 COUNT=0
 echo "$PACKAGES" | while IFS= read -r pkg; do
-    COUNT=$((COUNT + 1))
+    COUNT=`expr $COUNT + 1`
     echo "    $COUNT. $pkg"
 done
 
