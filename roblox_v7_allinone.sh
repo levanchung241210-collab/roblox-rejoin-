@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # =================================================================
-# ROBLOX AUTO REJOIN V9.9 - FINAL EMPIRE UNLEASHED (FARM READY)
-# Patched Verify Loop + Fallback PS Matcher + Activity Stack Monitor
+# ROBLOX AUTO REJOIN V10.0 - MULTI-USER ENTERPRISE (FARM READY)
+# Patched: Multi-User Process Isolator + Command User Router + Live Tail
 # =================================================================
 
 GREEN='\033[0;32m'
@@ -48,20 +48,20 @@ get_next_sequence() {
 }
 
 log_msg() {
-    local level=$1 msg=$2 pkg=$3
+    local level=$1 msg=$2 pkg=$3 user_id=$4
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     if [ -z "$pkg" ]; then
         echo "[$timestamp] [$level] $msg" >> "$LOG_FILE"
     else
-        echo "[$timestamp] [$pkg] [$level] $msg" >> "$LOG_FILE"
+        echo "[$timestamp] [${pkg}_u${user_id}] [$level] $msg" >> "$LOG_FILE"
     fi
 }
 
-# ==================== SETUP WIZARD (STRICT HANDSHAKE) ====================
+# ==================== SETUP WIZARD (LIVE DISPLAY INCLUDED) ====================
 setup_wizard() {
     clear
     echo "\n${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo "${BLUE}║   ROBLOX AUTO REJOIN V9.9 - FINAL EMPIRE  ║${NC}"
+    echo "${BLUE}║   ROBLOX AUTO REJOIN V10.0 - ENTERPRISE ║${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}\n"
     
     : > "$LOG_FILE"
@@ -102,16 +102,14 @@ setup_wizard() {
     fi
 
     if [ "$setup_mode" = "2" ] || [ ! -f "$TAB_LIST_FILE" ]; then
-        : > "$TAB_LIST_FILE"
-        echo "\n${GREEN}✓ Đã tạo file danh sách trống tại: ${YELLOW}$TAB_LIST_FILE${NC}"
-        echo "${YELLOW}➜ HƯỚNG DẪN THỦ CÔNG:${NC} Truy cập file bằng vi/nano hoặc chỉnh sửa bên ngoài."
-        echo "Điền chính xác tên Package Name của 4 bản clone (mỗi bản 1 dòng) rồi lưu lại."
+        echo "com.roblox.client" > "$TAB_LIST_FILE"
+        echo "\n${GREEN}✓ Đã tự động nạp package gốc cấu hình tại: ${YELLOW}$TAB_LIST_FILE${NC}"
+        echo "${YELLOW}[!] Hệ thống Multi-User V10.0 sẽ tự động phân tách 4 tab từ package này.${NC}"
         echo "----------------------------------------------------------------"
-        echo -n "Sau khi điền xong, nhấn [ENTER] tại đây để kích hoạt Monitor..."
+        echo -n "Nhấn [ENTER] tại đây để kích hoạt Monitor hiển thị trực tiếp..."
         read -r ready_signal
     fi
     
-    echo "${YELLOW}\n[2/2] Đồng bộ biến môi trường vận hành...${NC}"
     {
         echo "PLACE_ID=\"$PLACE_ID\""
         echo "LINK=\"$LINK\""
@@ -126,13 +124,17 @@ setup_wizard() {
     } > "$CONFIG_FILE"
     
     echo "${BLUE}════════════════════════════════════════${NC}"
-    echo "${GREEN}✅ SETUP V9.9 SUCCESSFUL! MONITOR IS RUNNING NGHIỆM TÚC...${NC}\n"
+    echo "${GREEN}✅ SETUP V10.0 SUCCESSFUL! ĐANG KẾT NỐI MÀN HÌNH GIÁM SÁT REAL-TIME...${NC}\n"
+    
+    # Kích hoạt chạy ngầm cố định và tự động Stream Log ra màn hình chính Termux theo yêu cầu của bạn
     nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
+    sleep 1
+    tail -f "$LOG_FILE"
 }
 
-# ==================== STATE ENGINE ====================
+# ==================== STATE ENGINE (MULTI-USER ISOLATED) ====================
 init_state() {
-    local pkg=$1 sf="$STATE_DIR/${pkg}.state"
+    local pkg=$1 user_id=$2 sf="$STATE_DIR/${pkg}_u${user_id}.state"
     [ -f "$sf" ] && return
     local now=$(date +%s)
     {
@@ -149,11 +151,11 @@ init_state() {
 }
 
 read_state() {
-    grep "^${2}=" "$STATE_DIR/${1}.state" 2>/dev/null | cut -d'=' -f2
+    grep "^${3}=" "$STATE_DIR/${1}_u${2}.state" 2>/dev/null | cut -d'=' -f2
 }
 
 write_state() {
-    local pkg=$1 key=$2 value=$3 sf="$STATE_DIR/${pkg}.state" tmp_sf="$sf.tmp"
+    local pkg=$1 user_id=$2 key=$3 value=$4 sf="$STATE_DIR/${pkg}_u${user_id}.state" tmp_sf="$sf.tmp"
     if [ -f "$sf" ]; then
         if grep -q "^${key}=" "$sf" 2>/dev/null; then
             sed "s|^${key}=.*|${key}=${value}|g" "$sf" > "$tmp_sf"
@@ -166,40 +168,51 @@ write_state() {
     mv "$tmp_sf" "$sf"
 }
 
-# ==================== ADVANCED /PROC INTERFACE ====================
-get_safe_pid() {
-    local pkg=$1
+# ==================== MULTI-USER CORE INTERFACE ====================
+get_all_users() {
+    echo "0" # Mặc định luôn có user gốc
+    pm list users 2>/dev/null | grep -oE "UserInfo\{[0-9]+" | cut -d'{' -f2
+}
+
+get_user_id_of_pid() {
+    local pid=$1
+    local user_str=$(ps -A 2>/dev/null | awk -v p="$pid" '$2==p {print $1}')
+    [ -z "$user_str" ] && user_str=$(ps 2>/dev/null | awk -v p="$pid" '$1==p {print $2}')
+    
+    if echo "$user_str" | grep -q "^u[0-9]"; then
+        echo "$user_str" | cut -d'_' -f1 | sed 's/u//'
+    else
+        # Fallback tối cao: Tính toán trực tiếp từ cấu trúc UID phân vùng nhân Linux
+        local uid=$(stat -c "%u" "/proc/$pid" 2>/dev/null)
+        if [ -n "$uid" ] && [ "$uid" -ge 100000 ]; then
+            echo $((uid / 100000))
+        else
+            echo "0"
+        fi
+    fi
+}
+
+get_pid_for_package_and_user() {
+    local pkg=$1 target_user=$2
     local pids=$(pidof "$pkg" 2>/dev/null)
     
-    # [FIX BUG THỰC CHIẾN #2] Cơ chế Fallback PS cứu nguy khi pidof trên ROM Cloud bị lỗi/trả rỗng
     if [ -z "$pids" ]; then
         pids=$(ps -A 2>/dev/null | grep "$pkg" | awk '{print $2}')
-        # Dự phòng cho một số dòng lệnh ps cũ hơn trên Android cổ
         [ -z "$pids" ] && pids=$(ps 2>/dev/null | grep "$pkg" | awk '{print $1}')
     fi
     [ -z "$pids" ] && return
     
-    # Bộ lọc kép tìm Main Process chính xác dựa trên cmdline hoặc dung lượng RAM cao nhất
+    # Lọc kép: Khớp chính xác cả package name và User ID sở hữu tiến trình đó
     for pid in $pids; do
         [ ! -d "/proc/$pid" ] && continue
         local cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | awk '{print $1}')
-        if [ "$cmd" = "$pkg" ]; then
-            echo "$pid" && return
+        if [ "$cmd" = "$pkg" ] || [ -z "$cmd" ]; then
+            local current_user=$(get_user_id_of_pid "$pid")
+            if [ "$current_user" = "$target_user" ]; then
+                echo "$pid" && return
+            fi
         fi
     done
-    
-    local max_rss=0 main_pid=""
-    for pid in $pids; do
-        [ ! -d "/proc/$pid" ] && continue
-        local rss=$(grep -i "VmRSS" "/proc/$pid/status" 2>/dev/null | awk '{print $2}')
-        [ -z "$rss" ] && rss=0
-        if [ "$rss" -gt "$max_rss" ]; then
-            max_rss=$rss
-            main_pid=$pid
-        fi
-    done
-    
-    [ -n "$main_pid" ] && echo "$main_pid" || echo "$pids" | awk '{print $1}'
 }
 
 get_foreground_app() {
@@ -227,39 +240,35 @@ detect_ui_error() {
 }
 
 check_process_health() {
-    local pkg=$1 pid=$2 fg_app=$3
+    local pkg=$1 user_id=$2 pid=$3 fg_app=$4
     
-    # Tuyến 1: Đo dung lượng bộ nhớ thực tế VmRSS từ nhân Linux
     local rss_kb=$(grep -i "VmRSS" "/proc/$pid/status" 2>/dev/null | awk '{print $2}')
     if [ -z "$rss_kb" ] || [ "$rss_kb" -le 0 ]; then
         echo "ZOMBIE_EMPTY_STATUS_RSS" && return 0
     fi
     
-    # [FIX BUG THỰC CHIẾN #3] Quét Activity chống kẹt cứng màn hình Splash (Splash Screen Deadlock)
-    # Nếu PID tồn tại, RAM còn nhưng Activity của Package hoàn toàn bốc hơi khỏi stack hệ thống -> Chết treo
-    if ! dumpsys activity activities 2>/dev/null | grep -q "$pkg"; then
+    # [QUÉT ACTIVITY THEO USER] Kiểm tra kẹt cứng màn hình Splash độc lập theo từng không gian User
+    if ! dumpsys activity activities 2>/dev/null | grep "User=$user_id" | grep -q "$pkg"; then
         echo "ZOMBIE_NO_ACTIVITY" && return 0
     fi
     
-    # Tuyến 3: CPU Ticks Watchdog + Freeze Counter Thích Ứng Môi Trường
     local stat_line=$(cat "/proc/$pid/stat" 2>/dev/null)
     if [ -n "$stat_line" ]; then
         local utime=$(echo "$stat_line" | awk '{print $14}')
         local stime=$(echo "$stat_line" | awk '{print $15}')
         local current_ticks=$((utime + stime))
         
-        local last_ticks=$(read_state "$pkg" "LAST_CPU_TICKS")
-        local freeze_cnt=$(read_state "$pkg" "FREEZE_COUNT")
+        local last_ticks=$(read_state "$pkg" "$user_id" "LAST_CPU_TICKS")
+        local freeze_cnt=$(read_state "$pkg" "$user_id" "FREEZE_COUNT")
         [ -z "$last_ticks" ] && last_ticks=0
         [ -z "$freeze_cnt" ] && freeze_cnt=0
         
-        write_state "$pkg" "LAST_CPU_TICKS" "$current_ticks"
+        write_state "$pkg" "$user_id" "LAST_CPU_TICKS" "$current_ticks"
         
         if [ "$last_ticks" -gt 0 ] && [ "$current_ticks" -eq "$last_ticks" ]; then
             freeze_cnt=$((freeze_cnt + 1))
-            write_state "$pkg" "FREEZE_COUNT" "$freeze_cnt"
+            write_state "$pkg" "$user_id" "FREEZE_COUNT" "$freeze_cnt"
             
-            # Điều tốc động: Tiền cảnh cho đơ 60 giây (4 chu kỳ). Hậu cảnh cho đơ hẳn 10 phút (40 chu kỳ) để loại trừ throttle.
             local max_allowed_freeze=4
             if [ "$fg_app" != "$pkg" ]; then
                 max_allowed_freeze=40 
@@ -269,29 +278,30 @@ check_process_health() {
                 echo "ZOMBIE_FROZEN_TICKS" && return 0
             fi
         else
-            write_state "$pkg" "FREEZE_COUNT" "0"
+            write_state "$pkg" "$user_id" "FREEZE_COUNT" "0"
         fi
     fi
     return 1
 }
 
-# ==================== PURE POSIX FIFO QUEUE ====================
+# ==================== PURE POSIX FIFO QUEUE (MULTI-USER) ====================
 enqueue_restart() {
-    local pkg=$1 error=$2
-    ls "$QUEUE_DIR"/*_*_${pkg}.queue >/dev/null 2>&1 && return
+    local pkg=$1 user_id=$2 error=$3
+    ls "$QUEUE_DIR"/*_*_${pkg}_u${user_id}.queue >/dev/null 2>&1 && return
     
     local now=$(date +%s)
     local seq=$(get_next_sequence "$now")
-    local qf="$QUEUE_DIR/${now}_${seq}_${pkg}.queue"
+    local qf="$QUEUE_DIR/${now}_${seq}_${pkg}_u${user_id}.queue"
     
     {
         echo "PKG=$pkg"
+        echo "USER_ID=$user_id"
         echo "ERROR=$error"
         echo "TIME=$now"
     } > "$qf.tmp"
     
     mv "$qf.tmp" "$qf"
-    log_msg "QUEUE" "Enqueued recovery task via sequence [$seq]" "$pkg"
+    log_msg "QUEUE" "Enqueued recovery task for User [$user_id] via sequence [$seq]" "$pkg" "$user_id"
 }
 
 process_queue() {
@@ -299,9 +309,10 @@ process_queue() {
     [ -z "$first_queue" ] && return
     
     local pkg=$(grep "^PKG=" "$first_queue" | cut -d'=' -f2)
+    local user_id=$(grep "^USER_ID=" "$first_queue" | cut -d'=' -f2)
     local error=$(grep "^ERROR=" "$first_queue" | cut -d'=' -f2)
     
-    do_restart "$pkg" "$error"
+    do_restart "$pkg" "$user_id" "$error"
     local ret_code=$?
     
     if [ "$ret_code" -eq 0 ] || [ "$ret_code" -eq 2 ]; then
@@ -309,129 +320,139 @@ process_queue() {
     fi
 }
 
-# ==================== RESTART HANDLER ====================
+# ==================== RESTART HANDLER (ROUTED TO SPECIFIC USER) ====================
 do_restart() {
-    local pkg=$1 error=$2 now=$(date +%s)
-    init_state "$pkg"
+    local pkg=$1 user_id=$2 error=$3 now=$(date +%s)
+    init_state "$pkg" "$user_id"
     
-    local restart_day=$(read_state "$pkg" "RESTART_DAY")
-    local restart=$(read_state "$pkg" "RESTART_COUNT")
+    local restart_day=$(read_state "$pkg" "$user_id" "RESTART_DAY")
+    local restart=$(read_state "$pkg" "$user_id" "RESTART_COUNT")
     [ -z "$restart_day" ] && restart_day=$now
     [ -z "$restart" ] && restart=0
     
     if [ $((now - restart_day)) -gt 86400 ]; then
         restart_day=$now; restart=0
-        write_state "$pkg" "RESTART_DAY" "$restart_day"
-        write_state "$pkg" "RESTART_COUNT" "0"
+        write_state "$pkg" "$user_id" "RESTART_DAY" "$restart_day"
+        write_state "$pkg" "$user_id" "RESTART_COUNT" "0"
     fi
     
     if [ "$restart" -ge "$MAX_RESTARTS" ]; then
-        log_msg "ABORT" "24h Ceiling boundary reached ($restart/$MAX_RESTARTS)." "$pkg"
+        log_msg "ABORT" "24h Ceiling boundary reached ($restart/$MAX_RESTARTS)." "$pkg" "$user_id"
         return 2
     fi
 
-    local restart_hour=$(read_state "$pkg" "RESTART_HOUR")
-    local restarts_this_hour=$(read_state "$pkg" "RESTARTS_THIS_HOUR")
+    local restart_hour=$(read_state "$pkg" "$user_id" "RESTART_HOUR")
+    local restarts_this_hour=$(read_state "$pkg" "$user_id" "RESTARTS_THIS_HOUR")
     [ -z "$restart_hour" ] && restart_hour=$now
     [ -z "$restarts_this_hour" ] && restarts_this_hour=0
     
     if [ $((now - restart_hour)) -gt 3600 ]; then
         restart_hour=$now; restarts_this_hour=0
-        write_state "$pkg" "RESTART_HOUR" "$restart_hour"
-        write_state "$pkg" "RESTARTS_THIS_HOUR" "0"
+        write_state "$pkg" "$user_id" "RESTART_HOUR" "$restart_hour"
+        write_state "$pkg" "$user_id" "RESTARTS_THIS_HOUR" "0"
     fi
     
     if [ "$restarts_this_hour" -ge "$MAX_RESTARTS_PER_HOUR" ]; then
-        log_msg "PROTECT" "Hourly quota exhausted. Postponing target." "$pkg"
+        log_msg "PROTECT" "Hourly quota exhausted. Postponing target." "$pkg" "$user_id"
         return 1
     fi
     
     restart=$((restart + 1))
     restarts_this_hour=$((restarts_this_hour + 1))
     
-    write_state "$pkg" "RESTART_COUNT" "$restart"
-    write_state "$pkg" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
-    write_state "$pkg" "LAST_ERROR" "$error"
+    write_state "$pkg" "$user_id" "RESTART_COUNT" "$restart"
+    write_state "$pkg" "$user_id" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
+    write_state "$pkg" "$user_id" "LAST_ERROR" "$error"
     
-    log_msg "RESTART" "Executing hard re-launch sequence -> Trigger: $error" "$pkg"
+    log_msg "RESTART" "Executing targeted re-launch loop -> Trigger: $error" "$pkg" "$user_id"
     
-    am force-stop "$pkg" 2>/dev/null
+    # Điều hướng lệnh Force-stop đích danh đến User sở hữu tab lỗi
+    am force-stop --user "$user_id" "$pkg" 2>/dev/null
     sleep 2
     
-    write_state "$pkg" "LAST_CPU_TICKS" "0"
-    write_state "$pkg" "FREEZE_COUNT" "0"
+    write_state "$pkg" "$user_id" "LAST_CPU_TICKS" "0"
+    write_state "$pkg" "$user_id" "FREEZE_COUNT" "0"
     
-    am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
+    # Điều hướng lệnh Khởi động đích danh đến User sở hữu tab lỗi
+    am start --user "$user_id" -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
     
-    # [FIX BUG THỰC CHIẾN #1] Vòng lặp verify động thay thế cho lệnh sleep cố định cũ.
-    # Thử quét liên tục 5 lần, mỗi lần cách nhau 3 giây (Tổng thời gian bọc lót tối đa lên tới 15 giây).
-    # Chấp nhận mọi độ trễ khởi động bạo lực nhất từ tài nguyên Cloud Phone bị bóp nghẹt.
     local verify_pid=""
     for i in 1 2 3 4 5; do
         sleep 3
-        verify_pid=$(get_safe_pid "$pkg")
+        verify_pid=$(get_pid_for_package_and_user "$pkg" "$user_id")
         [ -n "$verify_pid" ] && break
     done
     
     if [ "$verify_pid" -z ]; then
-        log_msg "CRITICAL" "Post-start verification dropped. Target missing from process table." "$pkg"
-        write_state "$pkg" "HEALTH_SCORE" "0"
+        log_msg "CRITICAL" "Post-start verification dropped. Target user missing from process table." "$pkg" "$user_id"
+        write_state "$pkg" "$user_id" "HEALTH_SCORE" "0"
         return 0
     fi
     
-    log_msg "SUCCESS" "Active process linked and stable on core PID [$verify_pid]." "$pkg"
-    write_state "$pkg" "LAST_CHECK" "$now"
+    log_msg "SUCCESS" "Active process linked and stable on core PID [$verify_pid]." "$pkg" "$user_id"
+    write_state "$pkg" "$user_id" "LAST_CHECK" "$now"
     return 0
 }
 
-# ==================== MAIN PURE NATIVE LOOP ====================
+# ==================== MAIN AUTOMATION LOOP ====================
 monitor_loop() {
     [ ! -f "$TAB_LIST_FILE" ] && { echo "Missing target configurations."; exit 1; }
 
     while true; do
         clear
         echo "===================================================="
-        echo " 🎮 ROBLOX AUTO REJOIN V9.9 - FINAL EMPIRE UNLEASHED"
+        echo " 🎮 ROBLOX AUTO REJOIN V10.0 - MULTI-USER ENTERPRISE"
         echo "===================================================="
         echo "Time: $(date)\n"
 
         FG_APP=$(get_foreground_app)
         UI_DUMPED=0 
+        local system_users=$(get_all_users | sort -u)
 
         while read -r pkg || [ -n "$pkg" ]; do
             [ -z "$pkg" ] && continue
-            echo "[MONITORING] ➜ $pkg"
-            init_state "$pkg"
             
-            # CHỐT 1: ĐỊNH DANH TIẾN TRÌNH GỐC LÕI (CÓ FALLBACK PS BỌC LÓT)
-            local main_pid=$(get_safe_pid "$pkg")
-            if [ -z "$main_pid" ]; then
-                write_state "$pkg" "HEALTH_SCORE" "0"
-                enqueue_restart "$pkg" "PROCESS_MISSING"
-                continue
-            fi
-            
-            # CHỐT 2: KIỂM TRA SỨC KHỎE SÂU (Bao gồm VmRSS + Activity Stack + CPU Ticks Động)
-            local internal_issue=$(check_process_health "$pkg" "$main_pid" "$FG_APP")
-            if [ -n "$internal_issue" ]; then
-                write_state "$pkg" "HEALTH_SCORE" "15"
-                enqueue_restart "$pkg" "$internal_issue"
-                continue
-            fi
-            
-            # CHỐT 3: TRÍCH XUẤT LỖI GIAO DIỆN (DÀNH CHO TIỀN CẢNH)
-            if [ "$FG_APP" = "$pkg" ]; then
-                local ui_err=$(detect_ui_error "$pkg")
-                if [ -n "$ui_err" ]; then
-                    write_state "$pkg" "HEALTH_SCORE" "40"
-                    enqueue_restart "$pkg" "UI_ERR_$ui_err"
+            for user_id in $system_users; do
+                local state_file="$STATE_DIR/${pkg}_u${user_id}.state"
+                local main_pid=$(get_pid_for_package_and_user "$pkg" "$user_id")
+                
+                # Cơ chế tự động dò tìm thông minh: Chỉ giám sát các không gian User đang bật Roblox clone
+                if [ "$user_id" -gt 0 ] && [ -z "$main_pid" ] && [ ! -f "$state_file" ]; then
                     continue
                 fi
-            fi
-            
-            write_state "$pkg" "HEALTH_SCORE" "100"
-            echo "  PID: $main_pid | Score: 100/100 | Status: METRIC EXCELLENT"
-            echo "----------------------------------------------------"
+                
+                echo "[MONITORING] ➜ $pkg (User $user_id)"
+                init_state "$pkg" "$user_id"
+                
+                # CHỐT 1: ĐỊNH DANH TIẾN TRÌNH THEO KHÔNG GIAN SỞ HỮU
+                if [ -z "$main_pid" ]; then
+                    write_state "$pkg" "$user_id" "HEALTH_SCORE" "0"
+                    enqueue_restart "$pkg" "$user_id" "PROCESS_MISSING"
+                    continue
+                fi
+                
+                # CHỐT 2: KIỂM TRA SỨC KHỎE SÂU TỪNG USER SPACE ĐỘC LẬP
+                local internal_issue=$(check_process_health "$pkg" "$user_id" "$main_pid" "$FG_APP")
+                if [ -n "$internal_issue" ]; then
+                    write_state "$pkg" "$user_id" "HEALTH_SCORE" "15"
+                    enqueue_restart "$pkg" "$user_id" "$internal_issue"
+                    continue
+                fi
+                
+                # CHỐT 3: TRÍCH XUẤT LỖI GIAO DIỆN (NẾU TAB ĐÓ ĐANG NỔI TRÊN MÀN HÌNH)
+                if [ "$FG_APP" = "$pkg" ]; then
+                    local ui_err=$(detect_ui_error "$pkg")
+                    if [ -n "$ui_err" ]; then
+                        write_state "$pkg" "$user_id" "HEALTH_SCORE" "40"
+                        enqueue_restart "$pkg" "$user_id" "UI_ERR_$ui_err"
+                        continue
+                    fi
+                fi
+                
+                write_state "$pkg" "$user_id" "HEALTH_SCORE" "100"
+                echo "  PID: $main_pid | Score: 100/100 | Status: RUNNING EXCELLENT"
+                echo "----------------------------------------------------"
+            done
         done < "$TAB_LIST_FILE"
 
         process_queue
@@ -441,24 +462,26 @@ monitor_loop() {
     done
 }
 
-# ==================== DASHBOARD GENERATOR ====================
+# ==================== DASHBOARD GENERATOR (DYNAMIC MAP) ====================
 generate_dashboard() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S') html="" active=0 dead=0
-    while read -r pkg || [ -n "$pkg" ]; do
-        [ -z "$pkg" ] && continue
-        local sf="$STATE_DIR/${pkg}.state"
+    
+    for sf in "$STATE_DIR"/*_u*.state; do
         [ ! -f "$sf" ] && continue
+        local filename=$(basename "$sf" .state)
+        local pkg=$(echo "$filename" | cut -d'_' -f1)
+        local user_id=$(echo "$filename" | cut -d'_' -f2 | sed 's/u//')
         
         local score=$(grep "^HEALTH_SCORE=" "$sf" | cut -d'=' -f2)
         local error=$(grep "^LAST_ERROR=" "$sf" | cut -d'=' -f2)
         local restart=$(grep "^RESTART_COUNT=" "$sf" | cut -d'=' -f2)
         
         if [ "$score" -eq 100 ]; then active=$((active + 1)); color="4ade80"; else dead=$((dead + 1)); color="f87171"; fi
-        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>$pkg</b> | Score: $score/100 | Event: $error | Restarts: $restart</div>"
-    done < "$TAB_LIST_FILE"
+        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>$pkg (User ID: $user_id)</b> | Score: $score/100 | Event: $error | Restarts: $restart</div>"
+    done
     
     cat > "$DASHBOARD_HTML.tmp" << EOF
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Final Empire</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V9.9 - Final Empire Panel</h1><p>Sync: $timestamp</p><div class="stat">Active Core: <b style="color:#4ade80;">$active</b></div><div class="stat">Recovering Pipeline: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V10.0 Enterprise</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V10.0 - Enterprise Panel</h1><p>Sync: $timestamp</p><div class="stat">Active Instances: <b style="color:#4ade80;">$active</b></div><div class="stat">Recovering Pipeline: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
 EOF
     mv "$DASHBOARD_HTML.tmp" "$DASHBOARD_HTML"
 }
