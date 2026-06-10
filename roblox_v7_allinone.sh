@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # ===============================================
-# ROBLOX AUTO REJOIN V7 - SIMPLE & CLEAR
-# Show everything step by step
+# ROBLOX AUTO REJOIN V9 - PRODUCTION ARCHITECTURE
+# 7 Modules + Score System + Restart Queue
 # ===============================================
 
 GREEN='\033[0;32m'
@@ -12,6 +12,7 @@ NC='\033[0m'
 
 INSTALL_DIR="$HOME/.roblox_auto_rejoin"
 STATE_DIR="$INSTALL_DIR/state"
+QUEUE_DIR="$INSTALL_DIR/queue"
 CONFIG_FILE="$INSTALL_DIR/config.conf"
 TAB_LIST_FILE="$INSTALL_DIR/tabs.list"
 LOG_FILE="$INSTALL_DIR/executor.log"
@@ -22,6 +23,7 @@ PLACE_ID="2753915549"
 LINK="roblox://placeId=$PLACE_ID"
 CHECK_INTERVAL=15
 MAX_RESTARTS=10
+MAX_RESTARTS_PER_HOUR=20
 
 # ==================== LOGGING ====================
 log_msg() {
@@ -37,373 +39,337 @@ log_msg() {
     fi
 }
 
-# ==================== SETUP WIZARD ====================
+# ==================== SETUP ====================
 setup_wizard() {
     clear
-    
     echo ""
     echo "${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo "${BLUE}║   ROBLOX AUTO REJOIN - SETUP WIZARD   ║${NC}"
+    echo "${BLUE}║  ROBLOX AUTO REJOIN V9 - SETUP        ║${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Step 1: Create folders
-    echo "${YELLOW}[STEP 1] Creating folders...${NC}"
-    mkdir -p "$INSTALL_DIR" "$STATE_DIR" "/sdcard/Download"
+    echo "${YELLOW}[1/5] Creating directories...${NC}"
+    mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$QUEUE_DIR" "/sdcard/Download"
     : > "$LOG_FILE"
-    echo "${GREEN}✓ Folders created${NC}"
-    echo "   $INSTALL_DIR"
-    echo "   $STATE_DIR"
+    echo "${GREEN}✓${NC}"
     echo ""
     
-    # Step 2: Scan packages
-    echo "${YELLOW}[STEP 2] Scanning Roblox packages...${NC}"
+    echo "${YELLOW}[2/5] Scanning packages...${NC}"
     local packages=$(pm list packages 2>/dev/null | grep -i roblox | sed 's/package://')
     
     if [ -z "$packages" ]; then
-        echo "${RED}✗ No Roblox packages found!${NC}"
-        echo "  Please install Roblox first"
+        echo "${RED}✗ No Roblox found!${NC}"
         exit 1
     fi
     
-    echo "${GREEN}✓ Found packages:${NC}"
+    echo "${GREEN}✓ Found:${NC}"
     echo ""
-    local count=0
-    echo "$packages" | while IFS= read -r pkg; do
-        count=$((count + 1))
+    echo "$packages" | while read pkg; do
         local pid=$(pidof "$pkg" 2>/dev/null)
-        
-        if [ -n "$pid" ]; then
-            echo "  ${GREEN}$count. $pkg${NC} [RUNNING]"
-        else
-            echo "  ${RED}$count. $pkg${NC} [NOT RUNNING]"
-        fi
+        [ -n "$pid" ] && echo "  ${GREEN}✓${NC} $pkg" || echo "  ${RED}✗${NC} $pkg"
     done
     echo ""
     
-    # Save all packages first
-    echo "$packages" > "$TAB_LIST_FILE"
+    echo "${YELLOW}[3/5] Select tabs...${NC}"
+    > "$TAB_LIST_FILE.tmp"
     
-    # Step 3: Choose which to monitor
-    echo "${YELLOW}[STEP 3] Which tabs do you want to monitor?${NC}"
-    echo ""
-    echo "Pick each tab:"
-    echo ""
-    
-    local selected=""
-    local count=0
-    
-    echo "$packages" | while IFS= read -r pkg; do
-        count=$((count + 1))
+    echo "$packages" | while read pkg; do
         local pid=$(pidof "$pkg" 2>/dev/null)
+        local default="n"
+        [ -n "$pid" ] && default="y"
         
-        # Auto-suggest running ones
-        local suggestion="(y)"
-        if [ -z "$pid" ]; then
-            suggestion="(n)"
-        fi
+        printf "  Monitor $pkg? ($default): "
+        read -r choice
+        [ -z "$choice" ] && choice="$default"
         
-        while true; do
-            printf "  $count. Monitor ${YELLOW}$pkg${NC}? $suggestion: "
-            read -r choice
-            
-            # Use suggestion if empty
-            if [ -z "$choice" ]; then
-                if [ -z "$pid" ]; then
-                    choice="n"
-                else
-                    choice="y"
-                fi
-            fi
-            
-            case "$choice" in
-                y|Y)
-                    echo "     ${GREEN}✓ Will monitor this${NC}"
-                    echo "$pkg" >> "$TAB_LIST_FILE.tmp"
-                    break
-                    ;;
-                n|N)
-                    echo "     ${YELLOW}✗ Skip this${NC}"
-                    break
-                    ;;
-                *)
-                    echo "     ${RED}Type y or n${NC}"
-                    ;;
-            esac
-        done
+        case "$choice" in
+            y|Y) echo "$pkg" >> "$TAB_LIST_FILE.tmp" ;;
+        esac
     done
     
-    # Use selected or all if none selected
-    if [ -f "$TAB_LIST_FILE.tmp" ] && [ -s "$TAB_LIST_FILE.tmp" ]; then
+    if [ -s "$TAB_LIST_FILE.tmp" ]; then
         mv "$TAB_LIST_FILE.tmp" "$TAB_LIST_FILE"
-        echo ""
-        echo "${GREEN}✓ Selected tabs:${NC}"
-        cat "$TAB_LIST_FILE" | nl -v 1
     else
-        echo ""
-        echo "${YELLOW}! No tabs selected, using all${NC}"
+        echo "$packages" > "$TAB_LIST_FILE"
     fi
     echo ""
     
-    # Step 4: Create config
-    echo "${YELLOW}[STEP 4] Creating config...${NC}"
+    echo "${YELLOW}[4/5] Creating config...${NC}"
     cat > "$CONFIG_FILE" << EOF
 PLACE_ID="$PLACE_ID"
 LINK="$LINK"
 CHECK_INTERVAL=$CHECK_INTERVAL
 MAX_RESTARTS=$MAX_RESTARTS
+MAX_RESTARTS_PER_HOUR=$MAX_RESTARTS_PER_HOUR
 INSTALL_DIR="$INSTALL_DIR"
 STATE_DIR="$STATE_DIR"
+QUEUE_DIR="$QUEUE_DIR"
 TAB_LIST="$TAB_LIST_FILE"
 LOG_FILE="$LOG_FILE"
-DASHBOARD="$DASHBOARD_HTML"
+UI_DUMP="$UI_DUMP"
 EOF
-    echo "${GREEN}✓ Config saved${NC}"
-    echo "   $CONFIG_FILE"
+    echo "${GREEN}✓${NC}"
     echo ""
     
-    # Step 5: Setup aliases
-    echo "${YELLOW}[STEP 5] Setting up shortcuts...${NC}"
+    echo "${YELLOW}[5/5] Setup aliases...${NC}"
     PROFILE="$HOME/.bashrc"
     [ ! -f "$PROFILE" ] && PROFILE="$HOME/.profile"
     
     if ! grep -q "roblox-rejoin" "$PROFILE" 2>/dev/null; then
         cat >> "$PROFILE" << 'ALIAS'
 
-alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v7_final.sh"
-alias roblox-status="sh $HOME/.roblox_auto_rejoin/roblox_v7_final.sh status"
-alias roblox-logs="sh $HOME/.roblox_auto_rejoin/roblox_v7_final.sh logs"
+alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v9.sh"
+alias roblox-status="sh $HOME/.roblox_auto_rejoin/roblox_v9.sh status"
+alias roblox-logs="sh $HOME/.roblox_auto_rejoin/roblox_v9.sh logs"
 ALIAS
-        echo "${GREEN}✓ Aliases created${NC}"
-        echo "   roblox-rejoin (start monitor)"
-        echo "   roblox-status (check status)"
-        echo "   roblox-logs (view logs)"
-    else
-        echo "${GREEN}✓ Aliases already exist${NC}"
     fi
+    echo "${GREEN}✓${NC}"
     echo ""
     
-    # Final confirmation
     echo "${BLUE}════════════════════════════════════════${NC}"
-    echo ""
     echo "${GREEN}✅ SETUP COMPLETE!${NC}"
     echo ""
-    echo "Tabs to monitor:"
-    cat "$TAB_LIST_FILE" | nl -v 1
-    echo ""
-    echo "Dashboard: /sdcard/Download/roblox_dashboard.html"
-    echo "Logs: $LOG_FILE"
-    echo ""
     
-    # Ask to start
-    printf "${YELLOW}Start monitoring now? (y/n): ${NC}"
+    printf "${YELLOW}Start monitor? (y/n): ${NC}"
     read -r choice
     
     if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-        echo ""
-        echo "${YELLOW}Starting monitor...${NC}"
-        
-        # Start in background
         nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
-        
         sleep 2
-        
-        echo "${GREEN}✓ Monitor started!${NC}"
-        echo ""
-        echo "Monitor is running in background"
-        echo "Roblox tabs can stay open"
-        echo "Dashboard will update every 15 seconds"
-        echo ""
-        
-        # Don't exit - show logs
-        tail -n 5 "$LOG_FILE"
-        
-    else
-        echo ""
-        echo "${YELLOW}Setup saved!${NC}"
-        echo "Run: ${GREEN}roblox-rejoin${NC} to start later"
+        echo "${GREEN}✓ Monitor running!${NC}"
+        echo "Dashboard: /sdcard/Download/roblox_dashboard.html"
     fi
-    
     echo ""
 }
 
-# ==================== STATE MANAGEMENT ====================
-init_tab_state() {
+# ==================== MODULE 1: STATE CACHE ====================
+init_state() {
     local pkg=$1
-    local state_file="$STATE_DIR/${pkg}.state"
+    local sf="$STATE_DIR/${pkg}.state"
+    [ -f "$sf" ] && return
     
-    if [ ! -f "$state_file" ]; then
-        cat > "$state_file" << EOF
-STATUS=ACTIVE
-LAST_SEEN=$(date +%s)
-RESTART_COUNT=0
+    cat > "$sf" << EOF
+HEALTH_SCORE=100
+LAST_CHECK=$(date +%s)
+LAST_UI=$(date +%s)
 LAST_ERROR=NONE
-UPTIME=$(date +%s)
+RESTART_COUNT=0
+RESTART_HOUR=$(date +%s)
+RESTARTS_THIS_HOUR=0
 EOF
-        log_msg "INIT" "State initialized" "$pkg"
-    fi
 }
 
 read_state() {
     local pkg=$1
     local key=$2
-    local state_file="$STATE_DIR/${pkg}.state"
-    
-    grep "^${key}=" "$state_file" 2>/dev/null | cut -d'=' -f2
+    grep "^${key}=" "$STATE_DIR/${pkg}.state" 2>/dev/null | cut -d'=' -f2
 }
 
 write_state() {
     local pkg=$1
     local key=$2
     local value=$3
-    local state_file="$STATE_DIR/${pkg}.state"
+    local sf="$STATE_DIR/${pkg}.state"
     
-    if [ -f "$state_file" ]; then
-        if grep -q "^${key}=" "$state_file" 2>/dev/null; then
-            sed -i "s|^${key}=.*|${key}=${value}|g" "$state_file"
-        else
-            echo "${key}=${value}" >> "$state_file"
-        fi
+    if grep -q "^${key}=" "$sf" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|g" "$sf"
+    else
+        echo "${key}=${value}" >> "$sf"
     fi
 }
 
-# ==================== DETECT UI ERROR ====================
+# ==================== MODULE 2: ACTIVITY DETECTOR ====================
+detect_activity() {
+    local pkg=$1
+    dumpsys activity activities 2>/dev/null | grep -q "$pkg"
+}
+
+# ==================== MODULE 3: TASK DETECTOR ====================
+detect_task() {
+    local pkg=$1
+    dumpsys activity recents 2>/dev/null | grep -q "$pkg"
+}
+
+# ==================== MODULE 4: PID DETECTOR ====================
+check_pid() {
+    local pkg=$1
+    pidof "$pkg" 2>/dev/null
+}
+
+# ==================== MODULE 5: UI ERROR DETECTOR ====================
 detect_ui_error() {
+    local pkg=$1
+    
+    # Only dump if app is foreground (to avoid overhead)
     uiautomator dump "$UI_DUMP" 2>/dev/null
+    [ ! -f "$UI_DUMP" ] && return 1
     
-    if [ ! -f "$UI_DUMP" ]; then
-        return 1
-    fi
-    
-    if grep -q "277\|Disconnected" "$UI_DUMP"; then echo "277"; return 0; fi
-    if grep -q "268\|Connection" "$UI_DUMP"; then echo "268"; return 0; fi
-    if grep -q "279\|Network" "$UI_DUMP"; then echo "279"; return 0; fi
-    if grep -q "ANR\|responding" "$UI_DUMP"; then echo "ANR"; return 0; fi
-    
-    return 1
+    # Extract error code
+    grep -oE "Error Code: [0-9]{3}" "$UI_DUMP" | head -1 | grep -oE "[0-9]{3}"
 }
 
-# ==================== REJOIN ====================
-do_rejoin() {
+# ==================== MODULE 6: ANR DETECTOR ====================
+detect_anr() {
+    local pkg=$1
+    
+    dumpsys activity processes 2>/dev/null | \
+    grep -A 20 "$pkg" | \
+    grep -q "not responding\|NOT RESPONDING"
+}
+
+# ==================== MODULE 7: SCORE ENGINE ====================
+calculate_score() {
+    local pkg=$1
+    local score=0
+    
+    # PID check (+20)
+    [ -n "$(check_pid "$pkg")" ] && score=$((score + 20))
+    
+    # Activity check (+30)
+    detect_activity "$pkg" && score=$((score + 30))
+    
+    # Task check (+20)
+    detect_task "$pkg" && score=$((score + 20))
+    
+    # Memory check (+20)
+    dumpsys activity processes 2>/dev/null | \
+    grep -A 5 "$pkg" | \
+    grep -q "TOP\|FOREGROUND\|VISIBLE" && score=$((score + 20))
+    
+    # UI check (+10) - only if foreground
+    local error=$(detect_ui_error "$pkg")
+    if [ -z "$error" ]; then
+        score=$((score + 10))
+    fi
+    
+    echo $score
+}
+
+score_to_state() {
+    local score=$1
+    
+    if [ $score -ge 80 ]; then
+        echo "ACTIVE"
+    elif [ $score -ge 50 ]; then
+        echo "SUSPECT"
+    else
+        echo "DEAD"
+    fi
+}
+
+# ==================== MODULE 8: RESTART QUEUE ====================
+enqueue_restart() {
     local pkg=$1
     local error=$2
     
-    init_tab_state "$pkg"
-    
-    local status=$(read_state "$pkg" "STATUS")
-    [ "$status" = "PAUSED" ] && return 0
-    [ "$status" = "BANNED" ] && return 0
-    
-    local restart_count=$(read_state "$pkg" "RESTART_COUNT")
-    
-    case "$error" in
-        277|279)
-            log_msg "REJOIN" "Error $error - Soft" "$pkg"
-            sleep 5
-            am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-            ;;
-        
-        268|271)
-            log_msg "REJOIN" "Error $error - Restart" "$pkg"
-            [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
-            restart_count=$((restart_count + 1))
-            write_state "$pkg" "RESTART_COUNT" "$restart_count"
-            
-            am force-stop "$pkg" 2>/dev/null
-            sleep 1
-            pm trim-caches 256M > /dev/null 2>&1
-            sleep 2
-            am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-            ;;
-        
-        ANR)
-            log_msg "REJOIN" "ANR - Reset" "$pkg"
-            [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
-            restart_count=$((restart_count + 1))
-            write_state "$pkg" "RESTART_COUNT" "$restart_count"
-            
-            am force-stop "$pkg" 2>/dev/null
-            sleep 1
-            pm trim-caches 999M > /dev/null 2>&1
-            sleep 3
-            am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-            ;;
-        
-        264|267|273)
-            log_msg "REJOIN" "Permanent error $error - BAN" "$pkg"
-            write_state "$pkg" "STATUS" "BANNED"
-            return 1
-            ;;
-        
-        *)
-            log_msg "REJOIN" "Crash - Restart" "$pkg"
-            [ $restart_count -gt $MAX_RESTARTS ] && { write_state "$pkg" "STATUS" "BANNED"; return 1; }
-            restart_count=$((restart_count + 1))
-            write_state "$pkg" "RESTART_COUNT" "$restart_count"
-            
-            am force-stop "$pkg" 2>/dev/null
-            sleep 1
-            pm trim-caches 256M > /dev/null 2>&1
-            sleep 2
-            am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-            ;;
-    esac
-    
-    write_state "$pkg" "UPTIME" "$(date +%s)"
-    write_state "$pkg" "LAST_SEEN" "$(date +%s)"
-    write_state "$pkg" "STATUS" "ACTIVE"
-    [ -n "$error" ] && write_state "$pkg" "LAST_ERROR" "$error"
+    local qf="$QUEUE_DIR/${pkg}.queue"
+    cat > "$qf" << EOF
+PKG=$pkg
+ERROR=$error
+TIME=$(date +%s)
+EOF
+    log_msg "QUEUE" "Enqueued" "$pkg"
 }
 
-# ==================== MONITOR TAB ====================
+process_queue() {
+    # Process 1 restart per cycle
+    local first_queue=$(find "$QUEUE_DIR" -name "*.queue" -type f | head -1)
+    [ -z "$first_queue" ] && return
+    
+    local pkg=$(grep "^PKG=" "$first_queue" | cut -d'=' -f2)
+    local error=$(grep "^ERROR=" "$first_queue" | cut -d'=' -f2)
+    
+    do_restart "$pkg" "$error"
+    rm -f "$first_queue"
+}
+
+# ==================== RESTART HANDLER ====================
+do_restart() {
+    local pkg=$1
+    local error=$2
+    
+    init_state "$pkg"
+    
+    local restart=$(read_state "$pkg" "RESTART_COUNT")
+    [ $restart -gt $MAX_RESTARTS ] && return 1
+    
+    restart=$((restart + 1))
+    write_state "$pkg" "RESTART_COUNT" "$restart"
+    write_state "$pkg" "LAST_ERROR" "$error"
+    
+    log_msg "RESTART" "Error $error" "$pkg"
+    
+    case "$error" in
+        277|279) sleep 3 ;;
+        268|271) sleep 1 ;;
+        ANR) sleep 2 ;;
+    esac
+    
+    am force-stop "$pkg" 2>/dev/null
+    sleep 1
+    am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
+    
+    write_state "$pkg" "LAST_CHECK" "$(date +%s)"
+}
+
+# ==================== MONITOR LOGIC ====================
 monitor_tab() {
     local pkg=$1
     
-    init_tab_state "$pkg"
+    init_state "$pkg"
     
-    local status=$(read_state "$pkg" "STATUS")
-    [ "$status" = "PAUSED" ] && return 0
-    [ "$status" = "BANNED" ] && return 0
+    # Calculate health score
+    local score=$(calculate_score "$pkg")
+    local state=$(score_to_state $score)
     
-    local pid=$(pidof "$pkg" 2>/dev/null)
+    write_state "$pkg" "HEALTH_SCORE" "$score"
     
-    if [ -z "$pid" ]; then
-        log_msg "CRASH" "Dead" "$pkg"
-        do_rejoin "$pkg" "CRASH"
-        return 0
-    fi
-    
-    write_state "$pkg" "LAST_SEEN" "$(date +%s)"
-    
-    local error=$(detect_ui_error)
-    if [ -n "$error" ]; then
-        log_msg "ERROR" "Error $error" "$pkg"
-        do_rejoin "$pkg" "$error"
-    fi
+    case $state in
+        ACTIVE)
+            # Check for UI error
+            local error=$(detect_ui_error "$pkg")
+            if [ -n "$error" ]; then
+                log_msg "ERROR" "UI Error $error" "$pkg"
+                enqueue_restart "$pkg" "$error"
+            fi
+            
+            # Check for ANR
+            if detect_anr "$pkg"; then
+                log_msg "ANR" "Detected" "$pkg"
+                enqueue_restart "$pkg" "ANR"
+            fi
+            ;;
+        
+        SUSPECT)
+            # Wait for next check
+            log_msg "SUSPECT" "Score: $score" "$pkg"
+            ;;
+        
+        DEAD)
+            log_msg "DEAD" "Score: $score" "$pkg"
+            enqueue_restart "$pkg" "CRASH"
+            ;;
+    esac
 }
 
-# ==================== MONITOR LOOP ====================
 monitor_loop() {
-    echo ""
-    echo "${BLUE}════════════════════════════════════════${NC}"
-    echo "${GREEN}MONITOR RUNNING${NC}"
-    echo "${BLUE}════════════════════════════════════════${NC}"
-    echo ""
+    [ ! -f "$TAB_LIST_FILE" ] && exit 1
     
-    [ ! -f "$TAB_LIST_FILE" ] && { echo "No tabs configured"; exit 1; }
-    
-    echo "Monitoring:"
-    cat "$TAB_LIST_FILE" | nl -v 1
-    echo ""
-    
-    log_msg "SYSTEM" "Monitor started"
+    log_msg "SYSTEM" "V9 Monitor started"
     
     while true; do
-        cat "$TAB_LIST_FILE" | while IFS= read -r pkg; do
+        # Monitor all tabs
+        while read -r pkg; do
             monitor_tab "$pkg" &
-        done
+        done < "$TAB_LIST_FILE"
         
         wait
+        
+        # Process restart queue
+        process_queue
+        
+        # Generate dashboard
+        generate_dashboard
         
         sleep $CHECK_INTERVAL
     done
@@ -413,95 +379,56 @@ monitor_loop() {
 generate_dashboard() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local active=0
+    local suspect=0
     local dead=0
-    local account_html=""
+    local html=""
     
-    if [ -f "$TAB_LIST_FILE" ]; then
-        cat "$TAB_LIST_FILE" | while IFS= read -r pkg; do
-            local state_file="$STATE_DIR/${pkg}.state"
-            
-            if [ ! -f "$state_file" ]; then
-                continue
-            fi
-            
-            local status=$(grep "^STATUS=" "$state_file" | cut -d'=' -f2)
-            local error=$(grep "^LAST_ERROR=" "$state_file" | cut -d'=' -f2)
-            local restart=$(grep "^RESTART_COUNT=" "$state_file" | cut -d'=' -f2)
-            
-            if [ "$status" = "ACTIVE" ]; then
-                active=$((active + 1))
-            else
-                dead=$((dead + 1))
-            fi
-            
-            account_html="${account_html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #4ade80;'><b>$pkg</b> [$status] Error: $error Restarts: $restart</div>"
-        done
-    fi
+    while read -r pkg; do
+        local sf="$STATE_DIR/${pkg}.state"
+        [ ! -f "$sf" ] && continue
+        
+        local score=$(grep "^HEALTH_SCORE=" "$sf" | cut -d'=' -f2)
+        local state=$(score_to_state $score)
+        local error=$(grep "^LAST_ERROR=" "$sf" | cut -d'=' -f2)
+        local restart=$(grep "^RESTART_COUNT=" "$sf" | cut -d'=' -f2)
+        
+        case $state in
+            ACTIVE) active=$((active + 1)); color="4ade80" ;;
+            SUSPECT) suspect=$((suspect + 1)); color="fbbf24" ;;
+            DEAD) dead=$((dead + 1)); color="f87171" ;;
+        esac
+        
+        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>$pkg</b> [$state] Score:$score Error:$error Restarts:$restart</div>"
+    done < "$TAB_LIST_FILE"
     
     cat > "$DASHBOARD_HTML" << EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Roblox Monitor</title>
-    <style>
-        body { font-family: Arial; background: #1a1a1a; color: #fff; padding: 20px; }
-        h1 { color: #4ade80; }
-        .stat { display: inline-block; margin: 10px; padding: 10px 15px; background: #2a2a2a; border-radius: 5px; }
-    </style>
-</head>
-<body>
-    <h1>🎮 Roblox Monitor</h1>
-    <p>Updated: $timestamp</p>
-    <div class="stat">Active: <b style="color:#4ade80;">$active</b></div>
-    <div class="stat">Dead: <b style="color:#f87171;">$dead</b></div>
-    <div style='margin-top: 20px;'>
-        $account_html
-    </div>
-    <script>
-        setTimeout(() => location.reload(), 15000);
-    </script>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Roblox V9</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V9 - Score System</h1><p>$timestamp</p><div class="stat">Active: <b style="color:#4ade80;">$active</b></div><div class="stat">Suspect: <b style="color:#fbbf24;">$suspect</b></div><div class="stat">Dead: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),15000)</script></body></html>
 EOF
 }
 
-# ==================== COMMAND ====================
+# ==================== MAIN ====================
 case "$1" in
-    setup)
-        setup_wizard
-        ;;
-    
-    monitor)
-        monitor_loop
-        ;;
-    
+    setup) setup_wizard ;;
+    monitor) monitor_loop ;;
     status)
-        [ ! -f "$CONFIG_FILE" ] && { echo "Not setup yet"; exit 1; }
+        [ ! -f "$CONFIG_FILE" ] && { echo "Not setup"; exit 1; }
         echo "Status:"
-        cat "$TAB_LIST_FILE" | while IFS= read -r pkg; do
-            local state=$(read_state "$pkg" "STATUS")
+        while read -r pkg; do
+            local score=$(read_state "$pkg" "HEALTH_SCORE")
+            local state=$(score_to_state $score)
             local error=$(read_state "$pkg" "LAST_ERROR")
-            echo "  $pkg | $state | Error: $error"
-        done
+            echo "  $pkg | $state (score:$score) | Error: $error"
+        done < "$TAB_LIST_FILE"
         ;;
-    
     logs)
-        [ ! -f "$LOG_FILE" ] && { echo "No logs yet"; exit 1; }
+        [ ! -f "$LOG_FILE" ] && { echo "No logs"; exit 1; }
         tail -n 20 "$LOG_FILE"
         ;;
-    
     *)
-        # Default
-        if [ ! -f "$CONFIG_FILE" ]; then
-            setup_wizard
-        else
-            # Start monitor
-            echo "${GREEN}Starting monitor...${NC}"
+        [ ! -f "$CONFIG_FILE" ] && setup_wizard || {
             nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
             sleep 1
-            echo "${GREEN}✓ Monitor running${NC}"
-            echo "Dashboard: /sdcard/Download/roblox_dashboard.html"
-        fi
+            echo "${GREEN}✓ V9 Monitor running${NC}"
+        }
         ;;
 esac
