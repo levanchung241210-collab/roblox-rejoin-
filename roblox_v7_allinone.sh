@@ -1,9 +1,7 @@
-cat << 'EOF' > roblox_auto_rejoin.sh
 #!/system/bin/sh
 # =================================================================
-# ROBLOX AUTO REJOIN V12.0 - UNIVERSAL MULTI-PROFILE RADAR
-# Optimized for: Cloud Phone Clones, Multi-User, VNG & Global Versions
-# Shareable & Compatible with all Cloner Apps
+# ROBLOX AUTO REJOIN V12.1 - UNIVERSAL MULTI-PROFILE RADAR (FIXED)
+# Patched: Clean Block Syntax + Multi-User Multi-Space Scanner
 # =================================================================
 
 GREEN='\033[0;32m'
@@ -58,18 +56,17 @@ log_msg() {
     fi
 }
 
-# ==================== PHÂN TÍCH USER ID & CHẾ ĐỘ QUÉT V12.0 ====================
 setup_wizard() {
     clear
     echo "\n${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo "${BLUE}║  ROBLOX AUTO REJOIN V12.0 - RADAR FIX  ║${NC}"
+    echo "${BLUE}║  ROBLOX AUTO REJOIN V12.1 - RADAR FIX  ║${NC}"
     echo "${BLUE}║     HỖ TRỢ MỌI LOẠI APP CLONE / USER   ║${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}\n"
     
     echo "${YELLOW}[⚙️] CHỌN CHẾ ĐỘ QUÉT ĐỂ SHARE CHO BẠN BÈ:${NC}"
-    echo "  1) Quét siêu sâu (Tự động bới RAM + Tìm User ID ẩn của Cloud Phone) -> Khuyên dùng"
+    echo "  1) Quét siêu sâu (Tự động bới RAM + Tìm User ID ẩn của Cloud Phone)"
     echo "  2) Chọn thủ công từ danh sách ứng dụng đã cài trên máy"
-    echo "  3) Tự nhập tay tên Package Name (Dành cho cloner đặc biệt)"
+    echo "  3) Tự nhập tay tên Package Name (Dành cho bản mod đặc biệt)"
     echo "--------------------------------------------------------"
     printf "Nhập lựa chọn của ông (1-3): "
     read mode_choice
@@ -78,11 +75,10 @@ setup_wizard() {
     : > "$LOG_FILE"
 
     if [ "$mode_choice" = "1" ]; then
-        echo "\n${YELLOW}[!] Đang quét toàn bộ phân vùng RAM và không gian Multi-User...${NC}"
-        echo "${RED}⚠️ Nhớ MỞ SẴN hoặc TREO toàn bộ các bản sao Roblox lên nhé!${NC}\n"
+        echo "\n${YELLOW}[!] Đang bới phân vùng RAM và không gian Multi-User...${NC}"
+        echo "${RED}⚠️ Hãy nhớ MỞ SẴN hoặc TREO toàn bộ các bản sao Roblox lên nhé!${NC}\n"
         sleep 2
         
-        # Quét và bóc tách cả tên gói lẫn User ID chạy ngầm (u0_, u10_, u11_...)
         ps -A -o USER,NAME 2>/dev/null | grep -E -i "roblox|vnggames" | while read -r user name; do
             local uid="0"
             if echo "$user" | grep -q "_"; then
@@ -104,7 +100,7 @@ setup_wizard() {
             idx=$((idx + 1))
         done
         echo "--------------------------------------------------------"
-        printf "Nhập số thứ tự các app muốn farm (ví dụ nếu chọn nhiều mục thì gõ cách nhau: 1 3 4): "
+        printf "Nhập số thứ tự các app muốn farm (ví dụ: 1 3): "
         read app_choices
         
         local current_idx=1
@@ -125,18 +121,17 @@ setup_wizard() {
         done
     fi
 
-    # Hiển thị kết quả kiểm duyệt
     if [ -s "$TAB_LIST_FILE" ]; then
-        echo "\n${GREEN}✅ ĐÃ THIẾT LẬP THÀNH CÔNG DANH SÁCH GIÁM SÁT PING BÀI:${NC}"
+        echo "\n${GREEN}✅ ĐÃ THIẾT LẬP THÀNH CÔNG DANH SÁCH GIÁM SÁT:${NC}"
         local line_idx=1
         while read -r tab_entry || [ -n "$tab_entry" ]; do
             local p=$(echo "$tab_entry" | cut -d'|' -f1)
             local u=$(echo "$tab_entry" | cut -d'|' -f2)
-            echo "  👉 Tab $line_idx: Gói [$p] ➜ User Không gian [$u]"
+            echo "  👉 Tab $line_idx: Gói [$p] ➜ Không gian User [$u]"
             line_idx=$((line_idx + 1))
         done < "$TAB_LIST_FILE"
     else
-        echo "\n${RED}❌ Không tìm thấy hoặc nhập sai cấu hình! Nạp mặc định...${NC}"
+        echo "\n${RED}❌ Cấu hình rỗng! Tự động nạp gói VNG mặc định...${NC}"
         echo "com.roblox.client.vnggames|0" > "$TAB_LIST_FILE"
     fi
 
@@ -153,14 +148,13 @@ setup_wizard() {
         echo "LOG_FILE=\"$LOG_FILE\""
     } > "$CONFIG_FILE"
     
-    echo "\n${GREEN}🚀 KHỞI CHẠY HỆ THỐNG GIÁM SÁT LIÊN TỤC V12.0...${NC}"
+    echo "\n${GREEN}🚀 KHỞI CHẠY HỆ THỐNG GIÁM SÁT V12.1...${NC}"
     sleep 2
     nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
     sleep 1
     tail -f "$LOG_FILE"
 }
 
-# ==================== STATE ENGINE FOR MULTI-USER ====================
 init_state() {
     local token=$1 sf="$STATE_DIR/${token}.state"
     [ -f "$sf" ] && return
@@ -193,7 +187,7 @@ write_state() {
     else
         echo "${key}=${value}" > "$tmp_sf"
     fi
-    mv "$tmp_sf" "$sf"
+    [ -f "$tmp_sf" ] && mv "$tmp_sf" "$sf"
 }
 
 get_pid_for_package() {
@@ -306,7 +300,7 @@ do_restart() {
     fi
     
     if [ "$restart" -ge "$MAX_RESTARTS" ]; then
-        log_msg "ABORT" "Chạm giới hạn tối đa cứu hộ 24h ($restart/$MAX_RESTARTS)." "$token"
+        log_msg "ABORT" "Chạm giới hạn cứu hộ 24h ($restart/$MAX_RESTARTS)." "$token"
         return 2
     fi
 
@@ -322,7 +316,7 @@ do_restart() {
     fi
     
     if [ "$restarts_this_hour" -ge "$MAX_RESTARTS_PER_HOUR" ]; then
-        log_msg "PROTECT" "Tần suất lỗi quá nhanh! Chờ hạ nhiệt..." "$token"
+        log_msg "PROTECT" "Tần suất lỗi quá nhanh! Đang giữ nhịp..." "$token"
         return 1
     fi
     
@@ -333,9 +327,8 @@ do_restart() {
     write_state "$token" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
     write_state "$token" "LAST_ERROR" "$error"
     
-    log_msg "RESTART" "Tiến hành cứu hộ tự động ➜ Lý do: $error" "$token"
+    log_msg "RESTART" "Tiến hành cứu hộ tự động -> Lý do: $error" "$token"
     
-    # Tiêu diệt chính xác theo từng Không gian (User ID) để không sập tab khác
     if [ "$uid" -eq 0 ]; then
         am force-stop "$pkg" 2>/dev/null
     else
@@ -348,7 +341,6 @@ do_restart() {
     write_state "$token" "LAST_CPU_TICKS" "0"
     write_state "$token" "FREEZE_COUNT" "0"
     
-    # Kích hoạt biệt lập theo User Space ID
     if [ "$uid" -eq 0 ]; then
         am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
     else
@@ -363,24 +355,23 @@ do_restart() {
     done
     
     if [ "$verify_pid" -z ]; then
-        log_msg "CRITICAL" "Không bắt được PID sau khi khởi chạy lại!" "$token"
+        log_msg "CRITICAL" "Không bắt được PID sau khi bật lại!" "$token"
         write_state "$token" "HEALTH_SCORE" "0"
         return 0
     fi
     
-    log_msg "SUCCESS" "Cứu hộ thành công! Đang chạy trên PID: [$verify_pid]." "$token"
+    log_msg "SUCCESS" "Cứu hộ thành công! Chạy trên PID: [$verify_pid]." "$token"
     write_state "$token" "LAST_CHECK" "$now"
     return 0
 }
 
-# ==================== MONITOR MAIN LOOP ====================
 monitor_loop() {
     [ ! -f "$TAB_LIST_FILE" ] && { echo "Thiếu tệp cấu hình danh sách tab farm."; exit 1; }
 
     while true; do
         clear
         echo "=========================================================="
-        echo " 🎮 ROBLOX AUTO REJOIN V12.0 - UNIVERSAL SPACE RADAR"
+        echo " 🎮 ROBLOX AUTO REJOIN V12.1 - UNIVERSAL SPACE RADAR"
         echo "=========================================================="
         echo "Thời gian: $(date)\n"
 
@@ -394,7 +385,7 @@ monitor_loop() {
             [ -z "$uid" ] && uid="0"
             
             local token="${pkg}_u${uid}"
-            echo "[🎯 KIỂM TRA RADAR] ➜ Gói: $pkg | Không gian: u$uid"
+            echo "[🎯 RADAR SỬA LỖI] ➜ Gói: $pkg | Phân vùng User: u$uid"
             
             init_state "$token"
             local main_pid=$(get_pid_for_package "$pkg" "$uid")
@@ -434,6 +425,7 @@ monitor_loop() {
 
 generate_dashboard() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S') html="" active=0 dead=0
+    [ -z "$STATE_DIR" ] && return
     for sf in "$STATE_DIR"/*.state; do
         [ ! -f "$sf" ] && continue
         local token=$(basename "$sf" .state)
@@ -445,10 +437,12 @@ generate_dashboard() {
         html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>Phân vùng: $token</b> | Điểm: $score/100 | Lỗi: $error | Cứu hộ: $restart lần</div>"
     done
     
-    cat > "$DASHBOARD_HTML.tmp" << EOF
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V12.0 Live Dashboard</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V12.0 - Universal Panel</h1><p>Cập nhật: $timestamp</p><div class="stat">Đang farm ngon: <b style="color:#4ade80;">$active</b></div><div class="stat">Đang xử lý/Lỗi: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
+    if [ -n "$DASHBOARD_HTML" ]; then
+        cat > "${DASHBOARD_HTML}.tmp" << EOF
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V12.1 Live Dashboard</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V12.1 - Universal Panel</h1><p>Cập nhật: $timestamp</p><div class="stat">Đang farm ngon: <b style="color:#4ade80;">$active</b></div><div class="stat">Đang xử lý/Lỗi: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
 EOF
-    mv "$DASHBOARD_HTML.tmp" "$DASHBOARD_HTML"
+        mv "${DASHBOARD_HTML}.tmp" "$DASHBOARD_HTML"
+    fi
 }
 
 if [ "$1" = "monitor" ]; then
@@ -465,5 +459,3 @@ case "$1" in
     monitor) monitor_loop ;;
     *) [ ! -f "$CONFIG_FILE" ] && setup_wizard || sh "$0" monitor ;;
 esac
-EOF
-chmod +x roblox_auto_rejoin.sh
