@@ -355,39 +355,30 @@ monitor_tab() {
 monitor_loop() {
     [ ! -f "$TAB_LIST_FILE" ] && exit 1
 
-    log_msg "SYSTEM" "V9 Monitor started"
-
     while true; do
         clear
 
-        echo "======================================"
+        echo "=================================="
         echo " ROBLOX AUTO REJOIN V9"
-        echo "======================================"
+        echo "=================================="
         echo "Time: $(date)"
         echo ""
 
         while read -r pkg; do
-            echo "[CHECK] $pkg"
-
             monitor_tab "$pkg"
 
             score=$(read_state "$pkg" "HEALTH_SCORE")
             error=$(read_state "$pkg" "LAST_ERROR")
 
+            echo "$pkg"
             echo "  Score : $score"
             echo "  Error : $error"
             echo ""
         done < "$TAB_LIST_FILE"
 
         process_queue
-        generate_dashboard
 
-        queue_count=$(find "$QUEUE_DIR" -name "*.queue" 2>/dev/null | wc -l)
-
-        echo "Queue : $queue_count"
-        echo "Next scan in $CHECK_INTERVAL seconds..."
-        echo ""
-
+        echo "Sleep ${CHECK_INTERVAL}s"
         sleep "$CHECK_INTERVAL"
     done
 }
@@ -427,16 +418,16 @@ EOF
 case "$1" in
     setup) setup_wizard ;;
     monitor) monitor_loop ;;
-    status)
-        [ ! -f "$CONFIG_FILE" ] && { echo "Not setup"; exit 1; }
-        echo "Status:"
-        while read -r pkg; do
-            local score=$(read_state "$pkg" "HEALTH_SCORE")
-            local state=$(score_to_state $score)
-            local error=$(read_state "$pkg" "LAST_ERROR")
-            echo "  $pkg | $state (score:$score) | Error: $error"
-        done < "$TAB_LIST_FILE"
-        ;;
+status)
+    [ ! -f "$CONFIG_FILE" ] && { echo "Not setup"; exit 1; }
+    echo "Status:"
+    while read -r pkg; do
+        score=$(read_state "$pkg" "HEALTH_SCORE")
+        state=$(score_to_state "$score")
+        error=$(read_state "$pkg" "LAST_ERROR")
+        echo "  $pkg | $state (score:$score) | Error: $error"
+    done < "$TAB_LIST_FILE"
+    ;;
     logs)
         [ ! -f "$LOG_FILE" ] && { echo "No logs"; exit 1; }
         tail -n 20 "$LOG_FILE"
