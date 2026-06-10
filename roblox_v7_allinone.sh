@@ -357,22 +357,46 @@ monitor_loop() {
     
     log_msg "SYSTEM" "V9 Monitor started"
     
+    monitor_loop() {
+    [ ! -f "$TAB_LIST_FILE" ] && exit 1
+
+    log_msg "SYSTEM" "V9 Monitor started"
+
     while true; do
-        # Monitor all tabs
+        echo ""
+        echo "========================================"
+        echo "[$(date '+%H:%M:%S')] Monitoring..."
+        echo "========================================"
+
         while read -r pkg; do
+            [ -z "$pkg" ] && continue
+
             monitor_tab "$pkg" &
+
+            score=$(read_state "$pkg" "HEALTH_SCORE")
+            [ -z "$score" ] && score="0"
+
+            state=$(score_to_state "$score")
+
+            printf "%-35s | %-8s | %s\n" \
+                "$pkg" \
+                "$state" \
+                "Score:$score"
+
         done < "$TAB_LIST_FILE"
-        
+
         wait
-        
-        # Process restart queue
+
         process_queue
-        
-        # Generate dashboard
         generate_dashboard
-        
-        sleep $CHECK_INTERVAL
+
+        echo "Queue: $(find "$QUEUE_DIR" -name '*.queue' 2>/dev/null | wc -l)"
+        echo "Sleeping ${CHECK_INTERVAL}s..."
+        echo ""
+
+        sleep "$CHECK_INTERVAL"
     done
+}
 }
 
 # ==================== DASHBOARD ====================
@@ -424,11 +448,11 @@ case "$1" in
         [ ! -f "$LOG_FILE" ] && { echo "No logs"; exit 1; }
         tail -n 20 "$LOG_FILE"
         ;;
-    *)
-        [ ! -f "$CONFIG_FILE" ] && setup_wizard || {
-            nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
-            sleep 1
-            echo "${GREEN}✓ V9 Monitor running${NC}"
-        }
-        ;;
-esac
+ *)
+    if [ ! -f "$CONFIG_FILE" ]; then
+        setup_wizard
+    else
+        echo "${GREEN}✓ V9 Monitor running${NC}"
+        sh "$0" monitor
+    fi
+    ;;
