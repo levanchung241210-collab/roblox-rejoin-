@@ -1,6 +1,6 @@
+#!/system/bin/sh
 echo "UID=$(id -u)"
 echo "USER=$(id)"
-#!/system/bin/sh
 # ===============================================
 # ROBLOX AUTO REJOIN - FINAL INSTALLER V2
 # Complete rewrite - Tested & Working
@@ -20,7 +20,6 @@ INSTALL_DIR="$HOME/.roblox_auto_rejoin"
 CONFIG_FILE="$INSTALL_DIR/packages.conf"
 STATE_DIR="$HOME/.roblox_auto_rejoin/state"
 LOG_FILE="$HOME/.roblox_auto_rejoin/executor.log"
-roblox_executor.log"
 
 echo "${BLUE}================================${NC}"
 echo "${BLUE}  ROBLOX AUTO REJOIN INSTALLER${NC}"
