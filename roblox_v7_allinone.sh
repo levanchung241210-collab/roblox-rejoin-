@@ -46,7 +46,7 @@ setup_mode() {
     echo ""
     
     # Create directories
-    echo "${YELLOW}[1/3] Creating directories...${NC}"
+    echo "${YELLOW}[1/4] Creating directories...${NC}"
     mkdir -p "$INSTALL_DIR" "$STATE_DIR" "/sdcard/Download"
     : > "$LOG_FILE"
     log_msg "SYSTEM" "V7 All-in-One initialized"
@@ -54,7 +54,7 @@ setup_mode() {
     echo ""
     
     # Detect packages
-    echo "${YELLOW}[2/3] Scanning Roblox packages...${NC}"
+    echo "${YELLOW}[2/4] Scanning Roblox packages...${NC}"
     local packages=$(pm list packages 2>/dev/null | grep -i roblox | sed 's/package://')
     
     if [ -z "$packages" ]; then
@@ -62,14 +62,68 @@ setup_mode() {
         exit 1
     fi
     
-    echo "${GREEN}[+] Found:${NC}"
-    echo "$packages" | nl -v 1
+    echo "${GREEN}[+] Found Roblox packages:${NC}"
+    echo ""
+    local count=0
+    echo "$packages" | while IFS= read -r pkg; do
+        count=$((count + 1))
+        echo "    ${GREEN}$count.${NC} $pkg"
+    done
+    echo ""
     
     echo "$packages" > "$TAB_LIST_FILE"
+    
+    # Interactive menu
+    echo "${YELLOW}[3/4] Interactive Setup${NC}"
+    echo ""
+    
+    local selected_tabs=""
+    local tab_count=0
+    
+    echo "$packages" | while IFS= read -r pkg; do
+        tab_count=$((tab_count + 1))
+        
+        while true; do
+            echo ""
+            echo "${YELLOW}Tab $tab_count: $pkg${NC}"
+            echo "  1. Yes - Monitor this tab"
+            echo "  2. No - Skip this tab"
+            echo "  3. Skip all - Use default (all tabs)"
+            echo ""
+            printf "${YELLOW}Choose (1-3): ${NC}"
+            read -r choice
+            
+            case "$choice" in
+                1)
+                    echo "${GREEN}✓ Selected${NC}"
+                    echo "$pkg" >> "$TAB_LIST_FILE.tmp"
+                    break
+                    ;;
+                2)
+                    echo "${YELLOW}⊘ Skipped${NC}"
+                    break
+                    ;;
+                3)
+                    echo "${GREEN}✓ Using all tabs${NC}"
+                    cp "$TAB_LIST_FILE" "$TAB_LIST_FILE.tmp"
+                    break 2
+                    ;;
+                *)
+                    echo "${RED}Invalid input${NC}"
+                    ;;
+            esac
+        done
+    done
+    
+    # Use selected or all
+    if [ -f "$TAB_LIST_FILE.tmp" ] && [ -s "$TAB_LIST_FILE.tmp" ]; then
+        mv "$TAB_LIST_FILE.tmp" "$TAB_LIST_FILE"
+    fi
+    
     echo ""
     
     # Create config
-    echo "${YELLOW}[3/3] Creating config...${NC}"
+    echo "${YELLOW}[4/4] Creating config...${NC}"
     cat > "$CONFIG_FILE" << EOF
 # V7 Config
 PLACE_ID="$PLACE_ID"
@@ -93,33 +147,52 @@ EOF
     if ! grep -q "roblox-rejoin" "$PROFILE" 2>/dev/null; then
         cat >> "$PROFILE" << 'ALIAS'
 
-alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/rejoin.sh start"
-alias roblox-pause="sh $HOME/.roblox_auto_rejoin/rejoin.sh pause"
-alias roblox-resume="sh $HOME/.roblox_auto_rejoin/rejoin.sh resume"
+alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh start"
+alias roblox-pause="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh pause"
+alias roblox-resume="sh $HOME/.roblox_auto_rejoin/roblox_v7_allinone.sh resume"
 ALIAS
     fi
     
-    # Instructions
+    # Show selected tabs
+    echo "${BLUE}════════════════════════════════════════${NC}"
+    echo "${GREEN}Selected tabs:${NC}"
+    echo ""
+    cat "$TAB_LIST_FILE" | nl -v 1
+    echo ""
+    
+    # Final instructions
     echo "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo "${GREEN}  ✅ SETUP COMPLETE!${NC}"
     echo "${BLUE}╚════════════════════════════════════════╝${NC}"
     echo ""
     echo "${YELLOW}NEXT STEPS:${NC}"
     echo ""
-    echo "1. Open ALL Roblox clones"
-    echo "   ${GREEN}Open each clone + login to Blox Fruits${NC}"
+    echo "1. Open selected tabs in Roblox"
+    echo "   ${GREEN}Open each + login to Blox Fruits${NC}"
     echo ""
-    echo "2. Wait for in-game"
-    echo "   ${GREEN}Don't stay in lobby - get in the game!${NC}"
+    echo "2. Make sure you're IN-GAME"
+    echo "   ${GREEN}Get into the game map (not lobby!)${NC}"
     echo ""
-    echo "3. Start monitor"
+    echo "3. Start monitoring"
     echo "   ${GREEN}roblox-rejoin${NC}"
     echo ""
     echo "4. View dashboard"
-    echo "   ${GREEN}/sdcard/Download/roblox_dashboard.html${NC}"
+    echo "   ${GREEN}File: /sdcard/Download/roblox_dashboard.html${NC}"
     echo ""
     echo "${BLUE}════════════════════════════════════════${NC}"
     echo ""
+    
+    # Ask to continue
+    echo ""
+    printf "${YELLOW}Ready to start monitor? (y/n): ${NC}"
+    read -r start_now
+    
+    if [ "$start_now" = "y" ] || [ "$start_now" = "Y" ]; then
+        sleep 2
+        monitor_mode
+    else
+        echo "${YELLOW}Setup saved. Run 'roblox-rejoin' to start monitor later.${NC}"
+    fi
 }
 
 # ==================== STATE MANAGEMENT ====================
