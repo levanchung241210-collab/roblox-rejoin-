@@ -31,7 +31,7 @@ show_banner() {
 pause_key() {
     echo ""
     echo -n "Press Enter to continue..."
-    read -r
+    read -r dummy
 }
 
 # ==================== STEP 1: DETECT PACKAGES ====================
