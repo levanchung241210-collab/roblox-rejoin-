@@ -1,6 +1,5 @@
-echo "===================="
-echo "UID: $(id)"
-echo "===================="
+echo "UID=$(id -u)"
+echo "USER=$(id)"
 #!/system/bin/sh
 # ===============================================
 # ROBLOX AUTO REJOIN - FINAL INSTALLER V2
