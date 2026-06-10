@@ -6,7 +6,6 @@
 
 STATE_DIR="$HOME/.roblox_auto_rejoin/state"
 LOG_FILE="$HOME/.roblox_auto_rejoin/executor.log"
-roblox_executor.log"
 DASHBOARD_HTML="/sdcard/Download/roblox_dashboard.html"
 
 PLACE_ID="2753915549"
