@@ -354,16 +354,6 @@ monitor_tab() {
 
 monitor_loop() {
     [ ! -f "$TAB_LIST_FILE" ] && exit 1
-    
-    log_msg "SYSTEM" "V9 Monitor started"
-    
-    monitor_loop() {
-    [ ! -f "$TAB_LIST_FILE" ] && exit 1
-
-    log_msg "SYSTEM" "V9 Monitor started"
-
- monitor_loop() {
-    [ ! -f "$TAB_LIST_FILE" ] && exit 1
 
     log_msg "SYSTEM" "V9 Monitor started"
 
@@ -392,26 +382,14 @@ monitor_loop() {
         process_queue
         generate_dashboard
 
+        queue_count=$(find "$QUEUE_DIR" -name "*.queue" 2>/dev/null | wc -l)
+
+        echo "Queue : $queue_count"
         echo "Next scan in $CHECK_INTERVAL seconds..."
-        echo ""
-
-        sleep $CHECK_INTERVAL
-    done
-}
- < "$TAB_LIST_FILE"
-
-        wait
-
-        process_queue
-        generate_dashboard
-
-        echo "Queue: $(find "$QUEUE_DIR" -name '*.queue' 2>/dev/null | wc -l)"
-        echo "Sleeping ${CHECK_INTERVAL}s..."
         echo ""
 
         sleep "$CHECK_INTERVAL"
     done
-}
 }
 
 # ==================== DASHBOARD ====================
