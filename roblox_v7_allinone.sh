@@ -1,461 +1,428 @@
 #!/system/bin/sh
 # =================================================================
-# ROBLOX AUTO REJOIN V12.1 - UNIVERSAL MULTI-PROFILE RADAR (FIXED)
-# Patched: Clean Block Syntax + Multi-User Multi-Space Scanner
+# ANDROID APPLICATION MONITOR FRAMEWORK (V13.6 - SOVEREIGN PERFECTION)
+# Tối ưu: Fix Cú Pháp Heredoc | Diệt Tận Gốc Subshell | Cooldown Cứu Hộ | Tránh Hoàn Toàn Báo Động Giả
 # =================================================================
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+# --- CẤU HÌNH CHIẾN TRƯỜNG ---
+TARGET_PACKAGE="com.roblox.client.vnggames"
+CHECK_INTERVAL=20
+PID_CACHE_TTL=20          
+LAUNCH_TIMEOUT=420        
+NET_STAGNANT_THRESHOLD=5  
+PROCESS_RECOVERY_COOLDOWN=180 # 🎯 VÁ LỖI 5: Cấu hình thời gian chờ chống spam am start vô hạn
+LOG_CHECK_COOLDOWN=120
 
-INSTALL_DIR="$HOME/.roblox_auto_rejoin"
-STATE_DIR="$INSTALL_DIR/state"
-QUEUE_DIR="$INSTALL_DIR/queue"
-CONFIG_FILE="$INSTALL_DIR/config.conf"
-TAB_LIST_FILE="$INSTALL_DIR/tabs.list"
-LOG_FILE="$INSTALL_DIR/executor.log"
-DASHBOARD_HTML="/sdcard/Download/roblox_dashboard.html"
-UI_DUMP="/sdcard/ui_dump.xml"
-LOCK_FILE="/data/local/tmp/roblox_monitor.lock"
-SEQ_FILE="$STATE_DIR/queue_sequence.seq"
+# --- HỆ THỐNG ĐƯỜNG DẪN ---
+BASE_DIR="$HOME/.nexus_monitor"
+STATE_DIR="$BASE_DIR/state"
+CACHE_DIR="$BASE_DIR/cache"
+LOG_FILE="$BASE_DIR/nexus_monitor.log"
+DASHBOARD_JSON="/sdcard/Download/nexus_status.json"
 
-PLACE_ID="2753915549"
-LINK="roblox://placeId=$PLACE_ID"
-CHECK_INTERVAL=15
-MAX_RESTARTS=10
-MAX_RESTARTS_PER_HOUR=20
+mkdir -p "$STATE_DIR" "$CACHE_DIR" "/sdcard/Download"
 
-mkdir -p "$INSTALL_DIR" "$STATE_DIR" "$QUEUE_DIR" "/sdcard/Download"
-[ ! -f "$SEQ_FILE" ] && echo "0" > "$SEQ_FILE"
+# Biến toàn cục lưu danh sách User ID phát hiện động trên thiết bị
+DETECTED_USERS="0"
 
-get_next_sequence() {
-    local current_time=$1
-    local last_time=$(cat "$STATE_DIR/last_seq_time.ts" 2>/dev/null)
-    local seq=$(cat "$SEQ_FILE" 2>/dev/null)
-    [ -z "$seq" ] && seq=0
-    
-    if [ "$current_time" != "$last_time" ]; then
-        seq=0
-        echo "$current_time" > "$STATE_DIR/last_seq_time.ts"
-    else
-        seq=$((seq + 1))
-    fi
-    echo "$seq" > "$SEQ_FILE"
-    printf "%05d" "$seq"
-}
-
-log_msg() {
+log_event() {
     local level=$1 msg=$2 token=$3
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    if [ -z "$token" ]; then
-        echo "[$timestamp] [$level] $msg" >> "$LOG_FILE"
-    else
-        echo "[$timestamp] [$token] [$level] $msg" >> "$LOG_FILE"
-    fi
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$token] [$level] $msg" >> "$LOG_FILE"
 }
 
-setup_wizard() {
-    clear
-    echo "\n${BLUE}╔════════════════════════════════════════╗${NC}"
-    echo "${BLUE}║  ROBLOX AUTO REJOIN V12.1 - RADAR FIX  ║${NC}"
-    echo "${BLUE}║     HỖ TRỢ MỌI LOẠI APP CLONE / USER   ║${NC}"
-    echo "${BLUE}╚════════════════════════════════════════╝${NC}\n"
-    
-    echo "${YELLOW}[⚙️] CHỌN CHẾ ĐỘ QUÉT ĐỂ SHARE CHO BẠN BÈ:${NC}"
-    echo "  1) Quét siêu sâu (Tự động bới RAM + Tìm User ID ẩn của Cloud Phone)"
-    echo "  2) Chọn thủ công từ danh sách ứng dụng đã cài trên máy"
-    echo "  3) Tự nhập tay tên Package Name (Dành cho bản mod đặc biệt)"
-    echo "--------------------------------------------------------"
-    printf "Nhập lựa chọn của ông (1-3): "
-    read mode_choice
-    
-    : > "$TAB_LIST_FILE"
-    : > "$LOG_FILE"
-
-    if [ "$mode_choice" = "1" ]; then
-        echo "\n${YELLOW}[!] Đang bới phân vùng RAM và không gian Multi-User...${NC}"
-        echo "${RED}⚠️ Hãy nhớ MỞ SẴN hoặc TREO toàn bộ các bản sao Roblox lên nhé!${NC}\n"
-        sleep 2
-        
-        ps -A -o USER,NAME 2>/dev/null | grep -E -i "roblox|vnggames" | while read -r user name; do
-            local uid="0"
-            if echo "$user" | grep -q "_"; then
-                uid=$(echo "$user" | cut -d'_' -f1 | tr -d 'u')
-            fi
-            case "$uid" in [0-9]*) ;; *) uid="0" ;; esac
-            echo "$name|$uid"
-        done | sort -u > "$TAB_LIST_FILE"
-        
-    elif [ "$mode_choice" = "2" ]; then
-        echo "\n${YELLOW}[!] Đang tải danh sách ứng dụng hệ thống...${NC}"
-        local raw_apps=$(pm list packages -3 | cut -d':' -f2 | sort -u)
-        if [ -z "$raw_apps" ]; then raw_apps=$(pm list packages | cut -d':' -f2 | sort -u); fi
-        
-        echo "--------------------------------------------------------"
-        local idx=1
-        echo "$raw_apps" | while read -r app; do
-            echo "  $idx) $app"
-            idx=$((idx + 1))
-        done
-        echo "--------------------------------------------------------"
-        printf "Nhập số thứ tự các app muốn farm (ví dụ: 1 3): "
-        read app_choices
-        
-        local current_idx=1
-        echo "$raw_apps" | while read -r app; do
-            for choice in $app_choices; do
-                if [ "$current_idx" -eq "$choice" ]; then
-                    echo "$app|0" >> "$TAB_LIST_FILE"
-                fi
-            done
-            current_idx=$((current_idx + 1))
-        done
-    else
-        echo "\n${YELLOW}[!] Nhập Package Name bằng tay (Cách nhau bằng dấu cách):${NC}"
-        printf "Ví dụ (com.roblox.client com.roblox.client.vnggames): "
-        read manual_pkgs
-        for mpkg in $manual_pkgs; do
-            echo "$mpkg|0" >> "$TAB_LIST_FILE"
-        done
-    fi
-
-    if [ -s "$TAB_LIST_FILE" ]; then
-        echo "\n${GREEN}✅ ĐÃ THIẾT LẬP THÀNH CÔNG DANH SÁCH GIÁM SÁT:${NC}"
-        local line_idx=1
-        while read -r tab_entry || [ -n "$tab_entry" ]; do
-            local p=$(echo "$tab_entry" | cut -d'|' -f1)
-            local u=$(echo "$tab_entry" | cut -d'|' -f2)
-            echo "  👉 Tab $line_idx: Gói [$p] ➜ Không gian User [$u]"
-            line_idx=$((line_idx + 1))
-        done < "$TAB_LIST_FILE"
-    else
-        echo "\n${RED}❌ Cấu hình rỗng! Tự động nạp gói VNG mặc định...${NC}"
-        echo "com.roblox.client.vnggames|0" > "$TAB_LIST_FILE"
-    fi
-
-    {
-        echo "PLACE_ID=\"$PLACE_ID\""
-        echo "LINK=\"$LINK\""
-        echo "CHECK_INTERVAL=$CHECK_INTERVAL"
-        echo "MAX_RESTARTS=$MAX_RESTARTS"
-        echo "MAX_RESTARTS_PER_HOUR=$MAX_RESTARTS_PER_HOUR"
-        echo "INSTALL_DIR=\"$INSTALL_DIR\""
-        echo "STATE_DIR=\"$STATE_DIR\""
-        echo "QUEUE_DIR=\"$QUEUE_DIR\""
-        echo "TAB_LIST=\"$TAB_LIST_FILE\""
-        echo "LOG_FILE=\"$LOG_FILE\""
-    } > "$CONFIG_FILE"
-    
-    echo "\n${GREEN}🚀 KHỞI CHẠY HỆ THỐNG GIÁM SÁT V12.1...${NC}"
-    sleep 2
-    nohup sh "$0" monitor > "$LOG_FILE" 2>&1 &
-    sleep 1
-    tail -f "$LOG_FILE"
+get_error_note_id() {
+    case "$1" in
+        "PROCESS_MISSING") echo "1" ;;
+        "ZOMBIE_EMPTY_STATUS") echo "2" ;;
+        "ZOMBIE_FROZEN_TICKS") echo "3" ;;
+        "INFINITE_LOOP_FREEZE") echo "4" ;;
+        "LAUNCH_MAP_TIMEOUT") echo "11" ;;
+        *BG_ERR_DISCONNECT*|*UI_ERR_277*) echo "5" ;;
+        *UI_ERR_279*) echo "6" ;;
+        *) echo "99" ;;
+    esac
 }
 
-init_state() {
-    local token=$1 sf="$STATE_DIR/${token}.state"
-    [ -f "$sf" ] && return
-    local now=$(date +%s)
-    {
-        echo "HEALTH_SCORE=100"
-        echo "LAST_CHECK=$now"
-        echo "LAST_ERROR=NONE"
-        echo "RESTART_COUNT=0"
-        echo "RESTART_DAY=$now"
-        echo "RESTART_HOUR=$now"
-        echo "RESTARTS_THIS_HOUR=0"
-        echo "LAST_CPU_TICKS=0"
-        echo "FREEZE_COUNT=0"
-    } > "$sf"
-}
-
-read_state() {
-    grep "^${2}=" "$STATE_DIR/${1}.state" 2>/dev/null | cut -d'=' -f2
-}
-
-write_state() {
-    local token=$1 key=$2 value=$3 sf="$STATE_DIR/${token}.state" tmp_sf="$sf.tmp"
-    if [ -f "$sf" ]; then
-        if grep -q "^${key}=" "$sf" 2>/dev/null; then
-            sed "s|^${key}=.*|${key}=${value}|g" "$sf" > "$tmp_sf"
-        else
-            cp "$sf" "$tmp_sf" && echo "${key}=${value}" >> "$tmp_sf"
-        fi
-    else
-        echo "${key}=${value}" > "$tmp_sf"
-    fi
-    [ -f "$tmp_sf" ] && mv "$tmp_sf" "$sf"
-}
-
-get_pid_for_package() {
-    local pkg=$1 uid=$2 pid=""
-    if [ "$uid" -eq 0 ]; then
-        pid=$(pidof "$pkg" 2>/dev/null | awk '{print $1}')
-        [ -z "$pid" ] && pid=$(ps -A 2>/dev/null | grep "$pkg" | awk '{print $2}' | head -1)
-    else
-        pid=$(ps -A -o USER,PID,NAME 2>/dev/null | grep "u${uid}_" | grep "$pkg" | awk '{print $2}' | head -1)
-    fi
-    echo "$pid"
-}
-
-get_foreground_app() {
-    local window_dump="$(dumpsys window windows 2>/dev/null)"
-    echo "$window_dump" | grep -E "mCurrentFocus|mFocusedApp|mTopActivityComponent" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1
-}
-
-detect_ui_error() {
+prepare_clone_data_paths() {
     local pkg=$1
-    [ "$FG_APP" != "$pkg" ] && return 1
-    if [ "$UI_DUMPED" -eq 0 ]; then
-        uiautomator dump "$UI_DUMP" >/dev/null 2>&1
-        UI_DUMPED=1
+    log_event "SYSTEM" "Khởi động tiền xử lý dữ liệu Sandbox và quét danh sách User..." "GLOBAL"
+
+    local TARGET_PATHS=$(ls -d /data/user/*/"$pkg" 2>/dev/null)
+    [ -d "/data/data/$pkg" ] && TARGET_PATHS="$TARGET_PATHS /data/data/$pkg"
+    
+    # =================================================================
+    # 🎯 BỔ SUNG LOGIC QUÉT RAM (MOUNTINFO) CHO ANDROID 12 Ở ĐÂY
+    # =================================================================
+    local running_pids=$(pidof "$pkg" 2>/dev/null)
+    if [ -z "$running_pids" ]; then
+        running_pids=$(ps -ef | grep "$pkg" | grep -v grep | awk '{print $2}')
     fi
-    [ ! -f "$UI_DUMP" ] && return 1
-    if grep -qE "Error Code: (277|279|268|271)" "$UI_DUMP"; then
-        if grep -qE "Disconnected|Reconnect|Leave|Connection" "$UI_DUMP"; then
-            grep -oE "Error Code: [0-9]{3}" "$UI_DUMP" | head -1 | grep -oE "[0-9]{3}"
-            return 0
+
+    for pid in $running_pids; do
+        case "$pid" in ''|*[!0-9]*) continue ;; esac
+        if [ -f "/proc/$pid/mountinfo" ]; then
+            local DETECTED_PATH=$(cat "/proc/$pid/mountinfo" | grep -E "/data/user/|/data/data/" | grep "$pkg" | awk '{print $5}' | head -n 1)
+            if [ -n "$DETECTED_PATH" ] && [ -d "$DETECTED_PATH" ]; then
+                TARGET_PATHS="$TARGET_PATHS $DETECTED_PATH"
+            fi
         fi
-    fi
-    return 1
+    done
+    # =================================================================
+
+    TARGET_PATHS=$(echo "$TARGET_PATHS" | tr ' ' '\n' | sort -u)
+
+    local found_users="0"
+    for u_dir in /data/user/*; do 
+        [ ! -d "$u_dir" ] && continue 
+        local u_id=$(basename "$u_dir") 
+        case "$u_id" in 
+            ''|*[!0-9]*) continue ;; 
+        esac 
+        if [ -d "$u_dir/$TARGET_PACKAGE" ]; then 
+            found_users="$found_users $u_id" 
+        fi 
+    done
+    DETECTED_USERS=$(echo "$found_users" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+    [ -z "$TARGET_PATHS" ] && return 1
+
+    for CURRENT_DATA_PATH in $TARGET_PATHS; do
+        if [ -d "$CURRENT_DATA_PATH" ]; then
+            local FOLDER_OWNER=$(stat -c "%U:%G" "$CURRENT_DATA_PATH" 2>/dev/null)
+            if [ -n "$FOLDER_OWNER" ]; then
+                # 🎯 KẾT HỢP FIX CRASH BẰNG CHOWN & RESTORECON CỦA ÔNG
+                chown -R "$FOLDER_OWNER" "$CURRENT_DATA_PATH" 2>/dev/null
+                chmod -R 755 "$CURRENT_DATA_PATH" 2>/dev/null
+                if command -v restorecon >/dev/null 2>&1; then
+                    restorecon -R "$CURRENT_DATA_PATH" 2>/dev/null
+                fi
+            fi
+        fi
+    done
 }
 
-check_process_health() {
-    local token=$1 pid=$2 fg_app=$3 pkg=$4
-    local rss_kb=$(grep -i "VmRSS" "/proc/$pid/status" 2>/dev/null | awk '{print $2}')
-    if [ -z "$rss_kb" ] || [ "$rss_kb" -le 0 ]; then
-        echo "ZOMBIE_EMPTY_STATUS_RSS" && return 0
+# 🎯 VÁ LỖI 2: ĐỊNH DANH USER ID CHUẨN XÁC QUA ĐƯỜNG DẪN FILE SYSTEM (BẺ GÃY CÔNG THỨC TOÁN HỌC MẶC ĐỊNH)
+get_user_id_from_uid() {
+    local target_uid=$1
+    for u_id in $DETECTED_USERS; do
+        local dir_uid=$(stat -c "%u" "/data/user/$u_id/$TARGET_PACKAGE" 2>/dev/null)
+        if [ "$dir_uid" = "$target_uid" ]; then
+            echo "$u_id"
+            return
+        fi
+    done
+    # Khôi phục cơ chế Fallback nếu thiết bị chạy phân vùng ảo đặc biệt không có map thư mục vật lý
+    if [ "$target_uid" -ge 100000 ]; then
+        echo $((target_uid / 100000))
+    else
+        echo "0"
     fi
+}
+
+discover_active_instances() {
+    local pkg=$1
+    for pid_dir in /proc/[0-9]*; do
+        [ ! -d "$pid_dir" ] && continue
+        local pid=$(basename "$pid_dir")
+        local cmd=$(cat "$pid_dir/cmdline" 2>/dev/null | tr -d '\0')
+        
+        case "$cmd" in
+            "$pkg"|"$pkg":*)
+                local num_uid=$(grep "^Uid:" "$pid_dir/status" 2>/dev/null | awk '{print $2}')
+                [ -n "$num_uid" ] && echo "$pid|$num_uid"
+                ;;
+        esac
+    done
+}
+
+get_uid_net_bytes() {
+    local num_uid=$1
+    if [ -f "/proc/uid_stat/$num_uid/tcp_rcv" ]; then
+        local rcv=$(cat "/proc/uid_stat/$num_uid/tcp_rcv" 2>/dev/null)
+        # 🎯 FIX LỖI RUNTIME: Loại bỏ dấu $ thừa trước đường dẫn /proc
+        local snd=$(cat "/proc/uid_stat/$num_uid/tcp_snd" 2>/dev/null)
+        echo "$((rcv + snd))"
+        return
+    fi
+    if [ -f "/proc/net/xt_qtaguid/stats" ]; then
+        local total_bytes=$(awk -v uid="$num_uid" '$4==uid {sum+=$6+$8} END {print sum}' /proc/net/xt_qtaguid/stats 2>/dev/null)
+        if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ]; then
+            echo "$total_bytes"
+            return
+        fi
+    fi
+    echo "-1"
+}
+
+evaluate_health_matrix() {
+    local token=$1 pid=$2 is_foreground=$3 num_uid=$4
+    local score=0
+    local now=$(date +%s)
     
+    local status_file="/proc/$pid/status"
+    [ ! -f "$status_file" ] && echo "0|PROCESS_MISSING" && return 0
+    
+    local status_data=$(cat "$status_file" 2>/dev/null)
+    local state=$(echo "$status_data" | grep "^State:" | awk '{print $2}')
+    local rss_kb=$(echo "$status_data" | grep "^VmRSS:" | awk '{print $2}')
+    local threads=$(echo "$status_data" | grep "^Threads:" | awk '{print $2}')
+
+    [ -z "$rss_kb" ] && rss_kb=0
+    [ -z "$threads" ] && threads=0
+
+    case "$state" in
+        R) score=$((score + 25)) ;;
+        S) score=$((score + 20)) ;;
+        D) score=$((score + 5)) ;;
+        *) score=$((score + 0)) ;;
+    esac
+
+    if [ "$rss_kb" -gt 102400 ]; then score=$((score + 25)); else score=$((score + 10)); fi
+    if [ "$threads" -gt 5 ]; then score=$((score + 20)); else score=$((score + 5)); fi
+
     local stat_line=$(cat "/proc/$pid/stat" 2>/dev/null)
+    local current_ticks=0
     if [ -n "$stat_line" ]; then
         local utime=$(echo "$stat_line" | awk '{print $14}')
         local stime=$(echo "$stat_line" | awk '{print $15}')
-        local current_ticks=$((utime + stime))
-        local last_ticks=$(read_state "$token" "LAST_CPU_TICKS")
-        local freeze_cnt=$(read_state "$token" "FREEZE_COUNT")
-        [ -z "$last_ticks" ] && last_ticks=0
-        [ -z "$freeze_cnt" ] && freeze_cnt=0
+        current_ticks=$((utime + stime))
+    fi
+    local last_ticks=$(cat "$CACHE_DIR/${token}_ticks.cache" 2>/dev/null)
+    [ -z "$last_ticks" ] && last_ticks=0
+    echo "$current_ticks" > "$CACHE_DIR/${token}_ticks.cache"
+
+    local current_net=$(get_uid_net_bytes "$num_uid")
+    local last_net=$(cat "$CACHE_DIR/${token}_net.cache" 2>/dev/null)
+    [ -z "$last_net" ] && last_net=0
+
+    if [ "$current_net" -eq -1 ]; then
+        local cpu_drift=$((current_ticks - last_ticks))
+        [ "$cpu_drift" -lt 0 ] && cpu_drift=$((cpu_drift * -1))
         
-        write_state "$token" "LAST_CPU_TICKS" "$current_ticks"
-        
-        if [ "$last_ticks" -gt 0 ] && [ "$current_ticks" -eq "$last_ticks" ]; then
-            freeze_cnt=$((freeze_cnt + 1))
-            write_state "$token" "FREEZE_COUNT" "$freeze_cnt"
-            local max_allowed_freeze=4
-            [ "$fg_app" != "$pkg" ] && max_allowed_freeze=40 
-            if [ "$freeze_cnt" -ge "$max_allowed_freeze" ]; then
-                echo "ZOMBIE_FROZEN_TICKS" && return 0
-            fi
+        local net_freeze_cnt=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
+        [ -z "$net_freeze_cnt" ] && net_freeze_cnt=0
+
+        if [ "$cpu_drift" -le 1 ]; then
+            net_freeze_cnt=$((net_freeze_cnt + 1))
         else
-            write_state "$token" "FREEZE_COUNT" "0"
+            net_freeze_cnt=0
         fi
+        echo "$net_freeze_cnt" > "$CACHE_DIR/${token}_net_freeze.cnt"
+    else
+        local net_freeze_cnt=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
+        [ -z "$net_freeze_cnt" ] && net_freeze_cnt=0
+        if [ "$current_net" -eq "$last_net" ]; then
+            net_freeze_cnt=$((net_freeze_cnt + 1))
+        else
+            net_freeze_cnt=0
+        fi
+        echo "$current_net" > "$CACHE_DIR/${token}_net.cache"
+        echo "$net_freeze_cnt" > "$CACHE_DIR/${token}_net_freeze.cnt"
+    fi
+
+    local net_freeze_cnt_final=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
+    [ -z "$net_freeze_cnt_final" ] && net_freeze_cnt_final=0
+    
+    local launch_time=$(cat "$CACHE_DIR/${token}_launch.ts" 2>/dev/null)
+    [ -z "$launch_time" ] && launch_time=$now
+    
+    if [ $((now - launch_time)) -gt "$LAUNCH_TIMEOUT" ]; then
+        if [ "$net_freeze_cnt_final" -ge "$NET_STAGNANT_THRESHOLD" ]; then echo "0|LAUNCH_MAP_TIMEOUT" && return 0; fi
+    fi
+
+    # 🎯 VÁ LỖI 3: SIẾT CHẶT ĐIỀU KIỆN INFINITE_LOOP_FREEZE (TĂNG NGƯỠNG LÊN CHU KỲ 12 VÀ CHỈ PHẠT KHI ĐANG Ở FOREGROUND)
+    if [ "$net_freeze_cnt_final" -ge 12 ]; then
+        if [ "$is_foreground" = "true" ] && [ "$current_ticks" -ne "$last_ticks" ] && [ "$last_ticks" -gt 0 ]; then 
+            echo "0|INFINITE_LOOP_FREEZE" && return 0
+        fi
+    fi
+
+    if [ "$current_ticks" -eq "$last_ticks" ] && [ "$last_ticks" -gt 0 ]; then
+        if [ "$is_foreground" = "false" ] && [ "$rss_kb" -gt 102400 ] && [ "$threads" -gt 5 ]; then
+            score=$((score + 30))
+            echo "0" > "$CACHE_DIR/${token}_freeze.cnt"
+        else
+            local f_cnt=$(cat "$CACHE_DIR/${token}_freeze.cnt" 2>/dev/null)
+            [ -z "$f_cnt" ] && f_cnt=0
+            f_cnt=$((f_cnt + 1))
+            echo "$f_cnt" > "$CACHE_DIR/${token}_freeze.cnt"
+            if [ "$f_cnt" -ge 10 ]; then echo "0|ZOMBIE_FROZEN_TICKS" && return 0; else score=$((score + 15)); fi
+        fi
+    else
+        score=$((score + 30))
+        echo "0" > "$CACHE_DIR/${token}_freeze.cnt"
+    fi
+
+    echo "$score|HEALTHY"
+}
+
+check_deferred_logs() {
+    local pid=$1 token=$2 current_score=$3
+    [ "$current_score" -ge 90 ] && return 1
+
+    local last_log_chk=$(cat "$CACHE_DIR/${token}_log_chk.ts" 2>/dev/null)
+    local now=$(date +%s)
+    [ -z "$last_log_chk" ] && last_log_chk=0
+    [ $((now - last_log_chk)) -lt "$LOG_CHECK_COOLDOWN" ] && return 1
+    echo "$now" > "$CACHE_DIR/${token}_log_chk.ts"
+
+    local system_logs=""
+    system_logs=$(logcat -d --pid="$pid" -t 100 2>/dev/null)
+    
+    if [ -z "$system_logs" ]; then
+        # 🎯 VÁ LỖI 4: DÙNG GREP GIỚI HẠN KHÔNG GIAN TỪ (-w) TRÁNH TRÙNG KHỚP SAI GIỮA CÁC CHUỖI PID CON
+        system_logs=$(logcat -d -t 300 2>/dev/null | grep -w "$pid")
+    fi
+
+    if echo "$system_logs" | grep -qE "Connection lost|Disconnected|Timeout|Fatal|NullPointerException"; then
+        echo "BG_ERR_DISCONNECT"
+        return 0
     fi
     return 1
 }
 
-enqueue_restart() {
-    local pkg=$1 uid=$2 error=$3 token="${pkg}_u${uid}"
-    ls "$QUEUE_DIR"/*_*_"${token}".queue >/dev/null 2>&1 && return
+strict_nuke_package() {
+    local pid=$1 token=$2
+    if [ -d "/proc/$pid" ]; then
+        log_event "NUKE" "Giai phong tien trinh: PID=$pid" "$token"
+        kill "$pid" 2>/dev/null
+        sleep 0.5
+        kill -9 "$pid" 2>/dev/null
+    fi
+    rm -f "$CACHE_DIR/${token}_ticks.cache" "$CACHE_DIR/${token}_net.cache" "$CACHE_DIR/${token}_net_freeze.cnt"
+}
+
+execute_recovery_pipeline() {
+    local pkg=$1 pid=$2 num_uid=$3 error_type=$4
     local now=$(date +%s)
-    local seq=$(get_next_sequence "$now")
-    local qf="$QUEUE_DIR/${now}_${seq}_${token}.queue"
-    {
-        echo "PKG=$pkg"
-        echo "UID=$uid"
-        echo "ERROR=$error"
-        echo "TIME=$now"
-    } > "$qf.tmp"
-    mv "$qf.tmp" "$qf"
-    log_msg "QUEUE" "Đã xếp hàng chờ xử lý lỗi [$error]" "$token"
-}
-
-process_queue() {
-    local first_queue=$(ls "$QUEUE_DIR"/*_*_*.queue 2>/dev/null | sort | head -1)
-    [ -z "$first_queue" ] && return
-    local pkg=$(grep "^PKG=" "$first_queue" | cut -d'=' -f2)
-    local uid=$(grep "^UID=" "$first_queue" | cut -d'=' -f2)
-    local error=$(grep "^ERROR=" "$first_queue" | cut -d'=' -f2)
-    do_restart "$pkg" "$uid" "$error"
-    local ret_code=$?
-    [ "$ret_code" -eq 0 ] || [ "$ret_code" -eq 2 ] && rm -f "$first_queue"
-}
-
-do_restart() {
-    local pkg=$1 uid=$2 error=$3 now=$(date +%s) token="${pkg}_u${uid}"
-    init_state "$token"
     
-    local restart_day=$(read_state "$token" "RESTART_DAY")
-    local restart=$(read_state "$token" "RESTART_COUNT")
-    [ -z "$restart_day" ] && restart_day=$now
-    [ -z "$restart" ] && restart=0
+    local am_user_id=$(get_user_id_from_uid "$num_uid")
+    local token="${pkg}_u${am_user_id}"
     
-    if [ $((now - restart_day)) -gt 86400 ]; then
-        restart_day=$now; restart=0
-        write_state "$token" "RESTART_DAY" "$restart_day"
-        write_state "$token" "RESTART_COUNT" "0"
-    fi
+    log_event "RECOVERY" "Khoi dong Rejoin tai User $am_user_id. Ly do: $error_type" "$token"
     
-    if [ "$restart" -ge "$MAX_RESTARTS" ]; then
-        log_msg "ABORT" "Chạm giới hạn cứu hộ 24h ($restart/$MAX_RESTARTS)." "$token"
-        return 2
-    fi
-
-    local restart_hour=$(read_state "$token" "RESTART_HOUR")
-    local restarts_this_hour=$(read_state "$token" "RESTARTS_THIS_HOUR")
-    [ -z "$restart_hour" ] && restart_hour=$now
-    [ -z "$restarts_this_hour" ] && restarts_this_hour=0
-    
-    if [ $((now - restart_hour)) -gt 3600 ]; then
-        restart_hour=$now; restarts_this_hour=0
-        write_state "$token" "RESTART_HOUR" "$restart_hour"
-        write_state "$token" "RESTARTS_THIS_HOUR" "0"
-    fi
-    
-    if [ "$restarts_this_hour" -ge "$MAX_RESTARTS_PER_HOUR" ]; then
-        log_msg "PROTECT" "Tần suất lỗi quá nhanh! Đang giữ nhịp..." "$token"
-        return 1
-    fi
-    
-    restart=$((restart + 1))
-    restarts_this_hour=$((restarts_this_hour + 1))
-    
-    write_state "$token" "RESTART_COUNT" "$restart"
-    write_state "$token" "RESTARTS_THIS_HOUR" "$restarts_this_hour"
-    write_state "$token" "LAST_ERROR" "$error"
-    
-    log_msg "RESTART" "Tiến hành cứu hộ tự động -> Lý do: $error" "$token"
-    
-    if [ "$uid" -eq 0 ]; then
-        am force-stop "$pkg" 2>/dev/null
-    else
-        am force-stop --user "$uid" "$pkg" 2>/dev/null
-        local target_pid=$(get_pid_for_package "$pkg" "$uid")
-        [ -n "$target_pid" ] && kill -9 "$target_pid" 2>/dev/null
-    fi
+    [ "$pid" -ne 0 ] && strict_nuke_package "$pid" "$token"
     sleep 2
     
-    write_state "$token" "LAST_CPU_TICKS" "0"
-    write_state "$token" "FREEZE_COUNT" "0"
+    echo "$now" > "$CACHE_DIR/${token}_launch.ts"
     
-    if [ "$uid" -eq 0 ]; then
-        am start -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-    else
-        am start --user "$uid" -a android.intent.action.VIEW -d "$LINK" -p "$pkg" 2>/dev/null
-    fi
+    local am_cmd="am start"
+    [ "$am_user_id" -ne 0 ] && am_cmd="am start --user $am_user_id"
+    $am_cmd -a android.intent.action.VIEW -d "roblox://placeId=2753915549" -p "$pkg" >/dev/null 2>&1
     
-    local verify_pid=""
-    for i in 1 2 3 4 5; do
-        sleep 3
-        verify_pid=$(get_pid_for_package "$pkg" "$uid")
-        [ -n "$verify_pid" ] && break
-    done
-    
-    if [ "$verify_pid" -z ]; then
-        log_msg "CRITICAL" "Không bắt được PID sau khi bật lại!" "$token"
-        write_state "$token" "HEALTH_SCORE" "0"
-        return 0
-    fi
-    
-    log_msg "SUCCESS" "Cứu hộ thành công! Chạy trên PID: [$verify_pid]." "$token"
-    write_state "$token" "LAST_CHECK" "$now"
-    return 0
+    local r_cnt=$(cat "$STATE_DIR/${token}_restarts.cnt" 2>/dev/null)
+    [ -z "$r_cnt" ] && r_cnt=0
+    echo "$((r_cnt + 1))" > "$STATE_DIR/${token}_restarts.cnt"
+    echo "$error_type" > "$STATE_DIR/${token}_last_err.txt"
 }
 
-monitor_loop() {
-    [ ! -f "$TAB_LIST_FILE" ] && { echo "Thiếu tệp cấu hình danh sách tab farm."; exit 1; }
+update_json_dashboard() {
+    local first=true
+    echo "{" > "${DASHBOARD_JSON}.tmp"
+    echo "  \"timestamp\": \"$(date '+%Y-%m-%d %H:%M:%S')\"," >> "${DASHBOARD_JSON}.tmp"
+    echo "  \"instances\": [" >> "${DASHBOARD_JSON}.tmp"
+
+    for f in "$STATE_DIR"/*_score.txt; do
+        [ ! -f "$f" ] && continue
+        local fname=$(basename "$f" _score.txt)
+        local score=$(cat "$f" 2>/dev/null)
+        local l_err=$(cat "$STATE_DIR/${fname}_last_err.txt" 2>/dev/null)
+        local r_cnt=$(cat "$STATE_DIR/${fname}_restarts.cnt" 2>/dev/null)
+        
+        [ -z "$score" ] && score=0
+        case "$score" in ''|*[!0-9]*) score=0 ;; esac
+        [ -z "$l_err" ] && l_err="NONE"
+        [ -z "$r_cnt" ] && r_cnt=0
+
+        local escaped_err=$(printf '%s' "$l_err" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\r\n')
+
+        if [ "$first" = true ]; then first=false; else printf ",\n" >> "${DASHBOARD_JSON}.tmp"; fi
+        
+        # 🎯 VÁ LỖI 1: BẺ THẲNG HÀNG DELIMITER EOF ĐỨNG RIÊNG LẬP KHÔNG DÍNH DẤU NGOẶC TRÁNH LỖI PHÂN TÍCH CÚ PHÁP
+        cat <<EOF >> "${DASHBOARD_JSON}.tmp"
+    {
+      "token": "$fname",
+      "health_score": $score,
+      "last_error": "$escaped_err",
+      "total_restarts": $r_cnt
+    }
+EOF
+    done
+    printf "\n  ]\n}\n" >> "${DASHBOARD_JSON}.tmp"
+    mv "${DASHBOARD_JSON}.tmp" "$DASHBOARD_JSON"
+}
+
+monitor_core_loop() {
+    log_event "SYSTEM" "Loi V13.6 Sovereign Perfection chinh thuc nap chi thi." "GLOBAL"
+    prepare_clone_data_paths "$TARGET_PACKAGE"
 
     while true; do
-        clear
-        echo "=========================================================="
-        echo " 🎮 ROBLOX AUTO REJOIN V12.1 - UNIVERSAL SPACE RADAR"
-        echo "=========================================================="
-        echo "Thời gian: $(date)\n"
+        local instances=""
+        instances=$(discover_active_instances "$TARGET_PACKAGE")
+        local now=$(date +%s)
+        
+        if [ -z "$instances" ]; then
+            for u_id in $DETECTED_USERS; do
+                # 🎯 VÁ LỖI 5: THIẾT LẬP BỘ ĐẾM GIỮ COOLDOWN CHO SỰ CỐ KHÔNG TÌM THẤY TIẾN TRÌNH (PROCESS_MISSING)
+                local last_miss_rcv=$(cat "$CACHE_DIR/miss_recovery_u${u_id}.ts" 2>/dev/null)
+                [ -z "$last_miss_rcv" ] && last_miss_rcv=0
+                
+                if [ $((now - last_miss_rcv)) -ge "$PROCESS_RECOVERY_COOLDOWN" ]; then
+                    echo "$now" > "$CACHE_DIR/miss_recovery_u${u_id}.ts"
+                    log_event "SYSTEM" "Phat hien thieu thuc extreme tai User $u_id. Dang gui cuu ho..." "GLOBAL"
+                    local synthetic_uid=$((u_id * 100000))
+                    execute_recovery_pipeline "$TARGET_PACKAGE" "0" "$synthetic_uid" "PROCESS_MISSING"
+                else
+                    log_event "SYSTEM" "User $u_id trong trang thai trong, bo qua cuu ho do dang giu Cooldown an toan." "GLOBAL"
+                fi
+            done
+        else
+            # 🎯 VÁ LỖI 6: LOẠI BỎ TOÀN BỘ HOÀN TOÀN ĐƯỜNG ỐNG DẪN PIPE ĐỂ TRÁNH BẪY SUBSHELL TRÊN MKSH/ASH CỦA ANDROID
+            while read -r instance || [ -n "$instance" ]; do
+                [ -z "$instance" ] && continue
+                
+                local pid=$(echo "$instance" | cut -d'|' -f1)
+                local num_uid=$(echo "$instance" | cut -d'|' -f2)
+                
+                local am_user_id=$(get_user_id_from_uid "$num_uid")
+                local token="${TARGET_PACKAGE}_u${am_user_id}"
+                
+                local fg_app=$(dumpsys window windows 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
+                if [ -z "$fg_app" ] || [ "$fg_app" = "null" ]; then
+                    fg_app=$(dumpsys activity top 2>/dev/null | grep -E "TASK.*id=" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
+                fi
+                if [ -z "$fg_app" ] ; then
+                    fg_app=$(dumpsys activity activities 2>/dev/null | grep "mResumedActivity" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
+                fi
 
-        FG_APP=$(get_foreground_app)
-        UI_DUMPED=0 
+                local is_fg="false"
+                [ "$fg_app" = "$TARGET_PACKAGE" ] && is_fg="true"
 
-        while read -r tab_entry || [ -n "$tab_entry" ]; do
-            [ -z "$tab_entry" ] && continue
-            local pkg=$(echo "$tab_entry" | cut -d'|' -f1)
-            local uid=$(echo "$tab_entry" | cut -d'|' -f2)
-            [ -z "$uid" ] && uid="0"
-            
-            local token="${pkg}_u${uid}"
-            echo "[🎯 RADAR SỬA LỖI] ➜ Gói: $pkg | Phân vùng User: u$uid"
-            
-            init_state "$token"
-            local main_pid=$(get_pid_for_package "$pkg" "$uid")
-            
-            if [ -z "$main_pid" ]; then
-                write_state "$token" "HEALTH_SCORE" "0"
-                enqueue_restart "$pkg" "$uid" "PROCESS_MISSING"
-                continue
-            fi
-            
-            local internal_issue=$(check_process_health "$token" "$main_pid" "$FG_APP" "$pkg")
-            if [ -n "$internal_issue" ]; then
-                write_state "$token" "HEALTH_SCORE" "15"
-                enqueue_restart "$pkg" "$uid" "$internal_issue"
-                continue
-            fi
-            
-            if [ "$FG_APP" = "$pkg" ]; then
-                local ui_err=$(detect_ui_error "$pkg")
-                if [ -n "$ui_err" ]; then
-                    write_state "$token" "HEALTH_SCORE" "40"
-                    enqueue_restart "$pkg" "$uid" "UI_ERR_$ui_err"
+                local matrix_result=$(evaluate_health_matrix "$token" "$pid" "$is_fg" "$num_uid")
+                local current_score=$(echo "$matrix_result" | cut -d'|' -f1)
+                local health_status=$(echo "$matrix_result" | cut -d'|' -f2)
+                
+                echo "$current_score" > "$STATE_DIR/${token}_score.txt"
+
+                if [ "$current_score" -lt 40 ] || [ "$health_status" != "HEALTHY" ]; then
+                    execute_recovery_pipeline "$TARGET_PACKAGE" "$pid" "$num_uid" "$health_status"
                     continue
                 fi
-            fi
-            
-            write_state "$token" "HEALTH_SCORE" "100"
-            echo "  ➜ PID: $main_pid | Sức khỏe: 100/100 | Trạng thái: ỔN ĐỊNH ✅"
-            echo "----------------------------------------------------------"
-        done < "$TAB_LIST_FILE"
 
-        process_queue
-        generate_dashboard
+                local deferred_issue=$(check_deferred_logs "$pid" "$token" "$current_score")
+                if [ -n "$deferred_issue" ]; then
+                    echo "35" > "$STATE_DIR/${token}_score.txt"
+                    execute_recovery_pipeline "$TARGET_PACKAGE" "$pid" "$num_uid" "$deferred_issue"
+                    continue
+                fi
+            done <<EOF
+$instances
+EOF
+        fi
+        
+        update_json_dashboard
         sleep "$CHECK_INTERVAL"
     done
 }
 
-generate_dashboard() {
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S') html="" active=0 dead=0
-    [ -z "$STATE_DIR" ] && return
-    for sf in "$STATE_DIR"/*.state; do
-        [ ! -f "$sf" ] && continue
-        local token=$(basename "$sf" .state)
-        local score=$(grep "^HEALTH_SCORE=" "$sf" | cut -d'=' -f2)
-        local error=$(grep "^LAST_ERROR=" "$sf" | cut -d'=' -f2)
-        local restart=$(grep "^RESTART_COUNT=" "$sf" | cut -d'=' -f2)
-        
-        if [ "$score" -eq 100 ]; then active=$((active + 1)); color="4ade80"; else dead=$((dead + 1)); color="f87171"; fi
-        html="${html}<div style='padding:10px;margin:5px;background:#2a2a2a;border-left:4px solid #$color;'><b>Phân vùng: $token</b> | Điểm: $score/100 | Lỗi: $error | Cứu hộ: $restart lần</div>"
-    done
-    
-    if [ -n "$DASHBOARD_HTML" ]; then
-        cat > "${DASHBOARD_HTML}.tmp" << EOF
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>V12.1 Live Dashboard</title><style>body{font-family:Arial;background:#1a1a1a;color:#fff;padding:20px}h1{color:#4ade80}.stat{display:inline-block;margin:10px;padding:10px 15px;background:#2a2a2a;border-radius:5px}</style></head><body><h1>🎮 Roblox V12.1 - Universal Panel</h1><p>Cập nhật: $timestamp</p><div class="stat">Đang farm ngon: <b style="color:#4ade80;">$active</b></div><div class="stat">Đang xử lý/Lỗi: <b style="color:#f87171;">$dead</b></div><div style="margin-top:20px;">$html</div><script>setTimeout(()=>location.reload(),10000)</script></body></html>
-EOF
-        mv "${DASHBOARD_HTML}.tmp" "$DASHBOARD_HTML"
-    fi
-}
-
-if [ "$1" = "monitor" ]; then
-    if [ -f "$LOCK_FILE" ]; then
-        pid=$(cat "$LOCK_FILE" 2>/dev/null)
-        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then exit 1; fi
-    fi
-    echo $$ > "$LOCK_FILE"
-    trap 'rm -f "$LOCK_FILE"; exit' EXIT INT TERM
-fi
-
-case "$1" in
-    setup) setup_wizard ;;
-    monitor) monitor_loop ;;
-    *) [ ! -f "$CONFIG_FILE" ] && setup_wizard || sh "$0" monitor ;;
-esac
+monitor_core_loop
