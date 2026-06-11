@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # =================================================================
-# ANDROID APPLICATION MONITOR FRAMEWORK (V13.7 - LIVE DASHBOARD & GRACE PERIOD)
-# Tích hợp: Fix Mountinfo Android 12 | Live UI Termux | Chống Loop Khởi Động
+# ANDROID APPLICATION MONITOR FRAMEWORK (V13.8 - THE CLONE AWAKENING)
+# Tích hợp: pm list users | Định tuyến Activity đích danh | Chống kẹt Sandbox
 # =================================================================
 
 # --- CẤU HÌNH CHIẾN TRƯỜNG ---
@@ -12,7 +12,7 @@ LAUNCH_TIMEOUT=420
 NET_STAGNANT_THRESHOLD=5  
 PROCESS_RECOVERY_COOLDOWN=180
 LOG_CHECK_COOLDOWN=120
-APP_LAUNCH_GRACE_PERIOD=90 # 🎯 THỜI GIAN MIỄN NHIỄM 90 GIÂY: Chống loop kill lúc app đang load map
+APP_LAUNCH_GRACE_PERIOD=90 
 
 # --- HỆ THỐNG ĐƯỜNG DẪN ---
 BASE_DIR="/data/local/tmp/.nexus_monitor"
@@ -24,68 +24,53 @@ DASHBOARD_JSON="/sdcard/Download/nexus_status.json"
 mkdir -p "$STATE_DIR" "$CACHE_DIR" "/sdcard/Download"
 
 DETECTED_USERS="0"
+LAUNCH_ACTIVITY=""
 
 log_event() {
     local level=$1 msg=$2 token=$3
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$token] [$level] $msg" >> "$LOG_FILE"
 }
 
-get_error_note_id() {
-    case "$1" in
-        "PROCESS_MISSING") echo "1" ;;
-        "ZOMBIE_EMPTY_STATUS") echo "2" ;;
-        "ZOMBIE_FROZEN_TICKS") echo "3" ;;
-        "INFINITE_LOOP_FREEZE") echo "4" ;;
-        "LAUNCH_MAP_TIMEOUT") echo "11" ;;
-        *BG_ERR_DISCONNECT*|*UI_ERR_277*) echo "5" ;;
-        *UI_ERR_279*) echo "6" ;;
-        *) echo "99" ;;
-    esac
-}
-
+# 🎯 BƯỚC 1 + 2: MOI DANH SÁCH USER VÀ TÌM CỔNG CHÀO (ACTIVITY)
 prepare_clone_data_paths() {
     local pkg=$1
-    log_event "SYSTEM" "Khởi động tiền xử lý dữ liệu Sandbox và quét danh sách User..." "GLOBAL"
+    log_event "SYSTEM" "Khởi động định vị Multi-User và Launcher Activity..." "GLOBAL"
 
-    local TARGET_PATHS=$(ls -d /data/user/*/"$pkg" 2>/dev/null)
-    [ -d "/data/data/$pkg" ] && TARGET_PATHS="$TARGET_PATHS /data/data/$pkg"
-    
-    # [LOGIC MOUNTINFO - ANDROID 12 CỦA ÔNG]
-    local running_pids=$(pidof "$pkg" 2>/dev/null)
-    if [ -z "$running_pids" ]; then
-        running_pids=$(ps -ef | grep "$pkg" | grep -v grep | awk '{print $2}')
+    # Tự động tìm Cổng khởi chạy (MainActivity) của Roblox
+    LAUNCH_ACTIVITY=$(cmd package resolve-activity --brief $pkg 2>/dev/null | tail -n 1)
+    if [ -z "$LAUNCH_ACTIVITY" ] || [ "$LAUNCH_ACTIVITY" = "No activity found" ]; then
+        # Fallback cứng nếu cmd lỗi
+        LAUNCH_ACTIVITY="$pkg/com.roblox.client.Activity.MainActivity"
     fi
+    log_event "SYSTEM" "Cổng khởi chạy tìm được: $LAUNCH_ACTIVITY" "GLOBAL"
 
-    for pid in $running_pids; do
-        case "$pid" in ''|*[!0-9]*) continue ;; esac
-        if [ -f "/proc/$pid/mountinfo" ]; then
-            local DETECTED_PATH=$(cat "/proc/$pid/mountinfo" | grep -E "/data/user/|/data/data/" | grep "$pkg" | awk '{print $5}' | head -n 1)
-            if [ -n "$DETECTED_PATH" ] && [ -d "$DETECTED_PATH" ]; then
-                TARGET_PATHS="$TARGET_PATHS $DETECTED_PATH"
-            fi
+    # Moi danh sách User ID thực tế từ hệ thống Android 12
+    local sys_users=$(pm list users | grep -E "UserInfo" | awk -F'{' '{print $2}' | awk -F':' '{print $1}')
+    local found_users=""
+    local TARGET_PATHS=""
+
+    for u_id in $sys_users; do
+        # Xóa khoảng trắng thừa
+        u_id=$(echo "$u_id" | tr -d ' ')
+        case "$u_id" in ''|*[!0-9]*) continue ;; esac 
+        
+        if [ -d "/data/user/$u_id/$pkg" ]; then
+            found_users="$found_users $u_id"
+            TARGET_PATHS="$TARGET_PATHS /data/user/$u_id/$pkg"
         fi
     done
-
-    TARGET_PATHS=$(echo "$TARGET_PATHS" | tr ' ' '\n' | sort -u)
-
-    local found_users="0"
-    for u_dir in /data/user/*; do 
-        [ ! -d "$u_dir" ] && continue 
-        local u_id=$(basename "$u_dir") 
-        case "$u_id" in ''|*[!0-9]*) continue ;; esac 
-        [ -d "$u_dir/$TARGET_PACKAGE" ] && found_users="$found_users $u_id" 
-    done
-    DETECTED_USERS=$(echo "$found_users" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    
+    DETECTED_USERS=$(echo "$found_users" | tr ' ' '\n' | sort -un | tr '\n' ' ')
 
     [ -z "$TARGET_PATHS" ] && return 1
 
+    # Cấp lại quyền cho thư mục để tránh văng app do lỗi permission
     for CURRENT_DATA_PATH in $TARGET_PATHS; do
         if [ -d "$CURRENT_DATA_PATH" ]; then
             local FOLDER_OWNER=$(stat -c "%U:%G" "$CURRENT_DATA_PATH" 2>/dev/null)
             if [ -n "$FOLDER_OWNER" ]; then
                 chown -R "$FOLDER_OWNER" "$CURRENT_DATA_PATH" 2>/dev/null
                 chmod -R 755 "$CURRENT_DATA_PATH" 2>/dev/null
-                command -v restorecon >/dev/null 2>&1 && restorecon -R "$CURRENT_DATA_PATH" 2>/dev/null
             fi
         fi
     done
@@ -100,11 +85,7 @@ get_user_id_from_uid() {
             return
         fi
     done
-    if [ "$target_uid" -ge 100000 ]; then
-        echo $((target_uid / 100000))
-    else
-        echo "0"
-    fi
+    if [ "$target_uid" -ge 100000 ]; then echo $((target_uid / 100000)); else echo "0"; fi
 }
 
 discover_active_instances() {
@@ -132,10 +113,7 @@ get_uid_net_bytes() {
     fi
     if [ -f "/proc/net/xt_qtaguid/stats" ]; then
         local total_bytes=$(awk -v uid="$num_uid" '$4==uid {sum+=$6+$8} END {print sum}' /proc/net/xt_qtaguid/stats 2>/dev/null)
-        if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ]; then
-            echo "$total_bytes"
-            return
-        fi
+        if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ]; then echo "$total_bytes" && return; fi
     fi
     echo "-1"
 }
@@ -144,13 +122,11 @@ evaluate_health_matrix() {
     local token=$1 pid=$2 is_foreground=$3 num_uid=$4
     local now=$(date +%s)
 
-    # 🎯 FIX LOOP APP CHƯA LOAD XONG: Kích hoạt thời gian miễn nhiễm
     local launch_time=$(cat "$CACHE_DIR/${token}_launch.ts" 2>/dev/null)
     [ -z "$launch_time" ] && launch_time=0
     if [ "$launch_time" -ne 0 ]; then
         if [ $((now - launch_time)) -lt "$APP_LAUNCH_GRACE_PERIOD" ]; then
-            echo "100|LAUNCHING"
-            return 0
+            echo "100|LAUNCHING" && return 0
         fi
     fi
 
@@ -238,13 +214,10 @@ check_deferred_logs() {
     echo "$now" > "$CACHE_DIR/${token}_log_chk.ts"
 
     local system_logs=$(logcat -d --pid="$pid" -t 100 2>/dev/null)
-    if [ -z "$system_logs" ]; then
-        system_logs=$(logcat -d -t 300 2>/dev/null | grep -w "$pid")
-    fi
+    if [ -z "$system_logs" ]; then system_logs=$(logcat -d -t 300 2>/dev/null | grep -w "$pid"); fi
 
     if echo "$system_logs" | grep -qE "Connection lost|Disconnected|Timeout|Fatal|NullPointerException"; then
-        echo "BG_ERR_DISCONNECT"
-        return 0
+        echo "BG_ERR_DISCONNECT" && return 0
     fi
     return 1
 }
@@ -259,6 +232,7 @@ strict_nuke_package() {
     rm -f "$CACHE_DIR/${token}_ticks.cache" "$CACHE_DIR/${token}_net.cache" "$CACHE_DIR/${token}_net_freeze.cnt"
 }
 
+# 🎯 BƯỚC 3: MỞ ĐÍCH DANH TAB CLONE BẰNG CỜ --user VÀ COMPONENT
 execute_recovery_pipeline() {
     local pkg=$1 pid=$2 num_uid=$3 error_type=$4
     local am_user_id=$(get_user_id_from_uid "$num_uid")
@@ -270,9 +244,16 @@ execute_recovery_pipeline() {
     
     echo "$now" > "$CACHE_DIR/${token}_launch.ts"
     
-    local am_cmd="am start"
-    [ "$am_user_id" -ne 0 ] && am_cmd="am start --user $am_user_id"
-    $am_cmd -a android.intent.action.VIEW -d "roblox://placeId=2753915549" -p "$pkg" >/dev/null 2>&1
+    # Logic Rejoin tuyệt đối cho Android 12 Clone
+    # Kết hợp gọi thẳng Activity (-n) và nhét link PlaceID (-d) vào Data để mở map
+    local START_CMD="am start --user $am_user_id -n $LAUNCH_ACTIVITY -a android.intent.action.VIEW -d \"roblox://placeId=2753915549\""
+    
+    # Nếu là app gốc (User 0) thì không cần ép cờ --user nếu không thích (nhưng Android 12 vẫn cho phép)
+    if [ "$am_user_id" -eq 0 ]; then
+        START_CMD="am start -n $LAUNCH_ACTIVITY -a android.intent.action.VIEW -d \"roblox://placeId=2753915549\""
+    fi
+
+    eval "$START_CMD >/dev/null 2>&1"
     
     local r_cnt=$(cat "$STATE_DIR/${token}_restarts.cnt" 2>/dev/null)
     [ -z "$r_cnt" ] && r_cnt=0
@@ -280,11 +261,10 @@ execute_recovery_pipeline() {
     echo "$error_type" > "$STATE_DIR/${token}_last_err.txt"
 }
 
-# 🎯 GIAO DIỆN TERMUX THỜI GIAN THỰC
 display_live_ui() {
-    printf "\033c" # Lệnh Clear màn hình đa nền tảng
+    printf "\033c" 
     echo -e "\033[1;36m=======================================================================\033[0m"
-    echo -e "\033[1;32m 🤖 NEXUS V13.7 - HỆ THỐNG GIÁM SÁT ROBLOX TRỰC TIẾP \033[0m"
+    echo -e "\033[1;32m 🤖 NEXUS V13.8 - THE CLONE AWAKENING (ANDROID 12) \033[0m"
     echo -e "\033[1;36m=======================================================================\033[0m"
     printf "\033[1;33m%-10s | %-7s | %-6s | %-20s | %-15s\033[0m\n" "TAB (USER)" "PID" "SCORE" "TRẠNG THÁI HIỆN TẠI" "GHI CHÚ LỖI"
     echo "-----------------------------------------------------------------------"
@@ -296,10 +276,10 @@ display_live_ui() {
         local l_err=$(cat "$STATE_DIR/${token}_last_err.txt" 2>/dev/null || echo "Đang Khởi Động")
         local r_cnt=$(cat "$STATE_DIR/${token}_restarts.cnt" 2>/dev/null || echo "0")
 
-        local color="\033[0;32m" # Xanh lá (Khỏe)
-        [ "$score" -eq 0 ] && color="\033[0;31m" # Đỏ (Chết/Missing)
-        [ "$score" -eq 100 ] && color="\033[1;34m" # Xanh dương (Đang Launch)
-        [ "$score" -lt 90 ] && [ "$score" -gt 0 ] && color="\033[1;33m" # Vàng (Cảnh báo)
+        local color="\033[0;32m"
+        [ "$score" -eq 0 ] && color="\033[0;31m"
+        [ "$score" -eq 100 ] && color="\033[1;34m"
+        [ "$score" -lt 90 ] && [ "$score" -gt 0 ] && color="\033[1;33m"
 
         local status_text="Khỏe mạnh"
         [ "$score" -eq 0 ] && status_text="Đang Cứu Hộ"
@@ -321,10 +301,7 @@ monitor_core_loop() {
         instances=$(discover_active_instances "$TARGET_PACKAGE")
         local now=$(date +%s)
         
-        # Reset PID cache trước khi quét
-        for u_id in $DETECTED_USERS; do
-            echo "0" > "$STATE_DIR/${TARGET_PACKAGE}_u${u_id}_pid.txt"
-        done
+        for u_id in $DETECTED_USERS; do echo "0" > "$STATE_DIR/${TARGET_PACKAGE}_u${u_id}_pid.txt"; done
 
         if [ -n "$instances" ]; then
             while read -r instance || [ -n "$instance" ]; do
@@ -363,7 +340,6 @@ $instances
 EOF
         fi
 
-        # Kiểm tra User bị thiếu (Missing)
         for u_id in $DETECTED_USERS; do
             local chk_pid=$(cat "$STATE_DIR/${TARGET_PACKAGE}_u${u_id}_pid.txt" 2>/dev/null)
             if [ -z "$chk_pid" ] || [ "$chk_pid" = "0" ]; then
