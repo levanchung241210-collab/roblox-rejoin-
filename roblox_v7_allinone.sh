@@ -1,16 +1,15 @@
 #!/system/bin/sh
 # =================================================================
-# ANDROID APPLICATION MONITOR FRAMEWORK (V13.6 - SOVEREIGN PERFECTION)
-# Tối ưu: Fix Cú Pháp Heredoc | Diệt Tận Gốc Subshell | Cooldown Cứu Hộ | Tránh Hoàn Toàn Báo Động Giả
+# ANDROID APPLICATION MONITOR FRAMEWORK (V12.9 - NEXUS ULTIMATE)
+# Kiến trúc: Đa luồng V12.7 + Ma trận V12.8 + Mạng UID Android + Trùng tu Đa User
 # =================================================================
 
-# --- CẤU HÌNH CHIẾN TRƯỜNG ---
+# --- THÔNG SỐ ĐIỀU CHỈNH CHIẾN TRƯỜNG ---
 TARGET_PACKAGE="com.roblox.client.vnggames"
 CHECK_INTERVAL=20
-PID_CACHE_TTL=20          
-LAUNCH_TIMEOUT=420        
-NET_STAGNANT_THRESHOLD=5  
-PROCESS_RECOVERY_COOLDOWN=180 # 🎯 VÁ LỖI 5: Cấu hình thời gian chờ chống spam am start vô hạn
+PID_CACHE_TTL=20          # 🎯 FIX BUG 4: Hạ xuống 20s để phát hiện crash tức thì
+LAUNCH_TIMEOUT=420        # 🎯 FIX BUG 3: Tăng lên 7 phút thích ứng thời gian nạp map dài
+NET_STAGNANT_THRESHOLD=3
 LOG_CHECK_COOLDOWN=120
 
 # --- HỆ THỐNG ĐƯỜNG DẪN ---
@@ -21,9 +20,6 @@ LOG_FILE="$BASE_DIR/nexus_monitor.log"
 DASHBOARD_JSON="/sdcard/Download/nexus_status.json"
 
 mkdir -p "$STATE_DIR" "$CACHE_DIR" "/sdcard/Download"
-
-# Biến toàn cục lưu danh sách User ID phát hiện động trên thiết bị
-DETECTED_USERS="0"
 
 log_event() {
     local level=$1 msg=$2 token=$3
@@ -43,108 +39,85 @@ get_error_note_id() {
     esac
 }
 
-prepare_clone_data_paths() {
-    local pkg=$1
-    log_event "SYSTEM" "Khởi động tiền xử lý dữ liệu Sandbox và quét danh sách User..." "GLOBAL"
-
-    local TARGET_PATHS=$(ls -d /data/user/*/"$pkg" 2>/dev/null)
-    [ -d "/data/data/$pkg" ] && TARGET_PATHS="$TARGET_PATHS /data/data/$pkg"
-    TARGET_PATHS=$(echo "$TARGET_PATHS" | tr ' ' '\n' | sort -u)
-
-    local found_users="0"
-    for u_dir in /data/user/*; do 
-        [ ! -d "$u_dir" ] && continue 
-        local u_id=$(basename "$u_dir") 
-        case "$u_id" in 
-            ''|*[!0-9]*) continue ;; 
-        esac 
-        if [ -d "$u_dir/$TARGET_PACKAGE" ]; then 
-            found_users="$found_users $u_id" 
-        fi 
-    done
-    DETECTED_USERS=$(echo "$found_users" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-
-    [ -z "$TARGET_PATHS" ] && return 1
-
-    for CURRENT_DATA_PATH in $TARGET_PATHS; do
-        if [ -d "$CURRENT_DATA_PATH" ]; then
-            local FOLDER_OWNER=$(stat -c "%U:%G" "$CURRENT_DATA_PATH" 2>/dev/null)
-            if [ -n "$FOLDER_OWNER" ] && command -v restorecon >/dev/null 2>&1; then
-                restorecon -R "$CURRENT_DATA_PATH" 2>/dev/null
-            fi
-        fi
-    done
+# Động cơ lấy UID số nguyên của Android phục vụ giám sát mạng phân tách
+get_numeric_uid_by_pid() {
+    local pid=$1
+    if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+        ps -An 2>/dev/null | awk -v p="$pid" '$2 == p {print $1}'
+    fi
 }
 
-# 🎯 VÁ LỖI 2: ĐỊNH DANH USER ID CHUẨN XÁC QUA ĐƯỜNG DẪN FILE SYSTEM (BẺ GÃY CÔNG THỨC TOÁN HỌC MẶC ĐỊNH)
-get_user_id_from_uid() {
-    local target_uid=$1
-    for u_id in $DETECTED_USERS; do
-        local dir_uid=$(stat -c "%u" "/data/user/$u_id/$TARGET_PACKAGE" 2>/dev/null)
-        if [ "$dir_uid" = "$target_uid" ]; then
-            echo "$u_id"
-            return
+get_cached_pid() {
+    local pkg=$1 uid=$2 token="${pkg}_u${uid}"
+    local cache_file="$CACHE_DIR/${token}.pid"
+    local ts_file="$CACHE_DIR/${token}.ts"
+    local now=$(date +%s)
+    
+    if [ -f "$cache_file" ] && [ -f "$ts_file" ]; then
+        local last_cached=$(cat "$ts_file" 2>/dev/null)
+        [ -z "$last_cached" ] && last_cached=0
+        if [ $((now - last_cached)) -lt "$PID_CACHE_TTL" ]; then
+            local pid=$(cat "$cache_file" 2>/dev/null)
+            if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+                echo "$pid"
+                return 0
+            fi
         fi
+    fi
+
+    local raw_pids="" main_pid="" max_rss=0
+    # Động cơ V12.7 quay trở lại: Bắt chặt chẽ tiền tố user
+    raw_pids=$(ps -A 2>/dev/null | grep -E "u${uid}_" | grep "$pkg" | awk '{print $2}')
+    [ -z "$raw_pids" ] && [ "$uid" -eq 0 ] && raw_pids=$(pidof "$pkg" 2>/dev/null)
+
+    for p in $raw_pids; do
+        [ ! -d "/proc/$p" ] && continue
+        local cmd=$(cat "/proc/$p/cmdline" 2>/dev/null | tr -d '\0')
+        case "$cmd" in
+            "$pkg"|"$pkg":*)
+                local rss=$(grep -i "VmRSS" "/proc/$p/status" 2>/dev/null | awk '{print $2}')
+                [ -z "$rss" ] && rss=0
+                if [ "$rss" -gt "$max_rss" ]; then
+                    max_rss=$rss
+                    main_pid=$p
+                fi
+                ;;
+        esac
     done
-    # Khôi phục cơ chế Fallback nếu thiết bị chạy phân vùng ảo đặc biệt không có map thư mục vật lý
-    if [ "$target_uid" -ge 100000 ]; then
-        echo $((target_uid / 100000))
+
+    if [ -n "$main_pid" ]; then
+        echo "$main_pid" > "$cache_file"
+        echo "$now" > "$ts_file"
+        echo "$main_pid"
+    fi
+}
+
+# 🎯 FIX BUG 1: GIÁM SÁT LƯU LƯỢNG MẠNG THEO INTERNET TRAFFIC UID CHUẨN ANDROID
+get_uid_net_bytes() {
+    local pid=$1
+    local num_uid=$(get_numeric_uid_by_pid "$pid")
+    
+    if [ -n "$num_uid" ] && [ -f "/proc/uid_stat/$num_uid/tcp_rcv" ]; then
+        local rcv=$(cat "/proc/uid_stat/$num_uid/tcp_rcv" 2>/dev/null)
+        local snd=$(cat "/proc/uid_stat/$num_uid/tcp_snd" 2>/dev/null)
+        [ -z "$rcv" ] && rcv=0
+        [ -z "$snd" ] && snd=0
+        echo "$((rcv + snd))"
     else
         echo "0"
     fi
 }
 
-discover_active_instances() {
-    local pkg=$1
-    for pid_dir in /proc/[0-9]*; do
-        [ ! -d "$pid_dir" ] && continue
-        local pid=$(basename "$pid_dir")
-        local cmd=$(cat "$pid_dir/cmdline" 2>/dev/null | tr -d '\0')
-        
-        case "$cmd" in
-            "$pkg"|"$pkg":*)
-                local num_uid=$(grep "^Uid:" "$pid_dir/status" 2>/dev/null | awk '{print $2}')
-                [ -n "$num_uid" ] && echo "$pid|$num_uid"
-                ;;
-        esac
-    done
-}
-
-get_uid_net_bytes() {
-    local num_uid=$1
-    if [ -f "/proc/uid_stat/$num_uid/tcp_rcv" ]; then
-        local rcv=$(cat "/proc/uid_stat/$num_uid/tcp_rcv" 2>/dev/null)
-        # 🎯 FIX LỖI RUNTIME: Loại bỏ dấu $ thừa trước đường dẫn /proc
-        local snd=$(cat "/proc/uid_stat/$num_uid/tcp_snd" 2>/dev/null)
-        echo "$((rcv + snd))"
-        return
-    fi
-    if [ -f "/proc/net/xt_qtaguid/stats" ]; then
-        local total_bytes=$(awk -v uid="$num_uid" '$4==uid {sum+=$6+$8} END {print sum}' /proc/net/xt_qtaguid/stats 2>/dev/null)
-        if [ -n "$total_bytes" ] && [ "$total_bytes" -gt 0 ]; then
-            echo "$total_bytes"
-            return
-        fi
-    fi
-    echo "-1"
-}
-
 evaluate_health_matrix() {
-    local token=$1 pid=$2 is_foreground=$3 num_uid=$4
+    local token=$1 pid=$2 is_foreground=$3 pkg=$4
     local score=0
+    local status_file="/proc/$pid/status"
     local now=$(date +%s)
     
-    local status_file="/proc/$pid/status"
     [ ! -f "$status_file" ] && echo "0|PROCESS_MISSING" && return 0
     
-    local status_data=$(cat "$status_file" 2>/dev/null)
-    local state=$(echo "$status_data" | grep "^State:" | awk '{print $2}')
-    local rss_kb=$(echo "$status_data" | grep "^VmRSS:" | awk '{print $2}')
-    local threads=$(echo "$status_data" | grep "^Threads:" | awk '{print $2}')
-
-    [ -z "$rss_kb" ] && rss_kb=0
-    [ -z "$threads" ] && threads=0
-
+    # 1. Khảo sát Trạng thái (Max: 25 điểm)
+    local state=$(grep -i "State:" "$status_file" 2>/dev/null | awk '{print $2}')
     case "$state" in
         R) score=$((score + 25)) ;;
         S) score=$((score + 20)) ;;
@@ -152,9 +125,25 @@ evaluate_health_matrix() {
         *) score=$((score + 0)) ;;
     esac
 
-    if [ "$rss_kb" -gt 102400 ]; then score=$((score + 25)); else score=$((score + 10)); fi
-    if [ "$threads" -gt 5 ]; then score=$((score + 20)); else score=$((score + 5)); fi
+    # 2. Khảo sát Bộ nhớ RAM VmRSS (Max: 25 điểm)
+    local rss_kb=$(grep -i "VmRSS" "$status_file" 2>/dev/null | awk '{print $2}')
+    [ -z "$rss_kb" ] && rss_kb=0
+    if [ "$rss_kb" -gt 102400 ]; then
+        score=$((score + 25))
+    else
+        score=$((score + 10))
+    fi
 
+    # 3. Khảo sát Tiểu luồng Threads (Max: 20 điểm)
+    local threads=$(grep -i "Threads:" "$status_file" 2>/dev/null | awk '{print $2}')
+    [ -z "$threads" ] && threads=0
+    if [ "$threads" -gt 5 ]; then
+        score=$((score + 20))
+    else
+        score=$((score + 5))
+    fi
+
+    # 4. Đo lường Xung nhịp CPU Ticks
     local stat_line=$(cat "/proc/$pid/stat" 2>/dev/null)
     local current_ticks=0
     if [ -n "$stat_line" ]; then
@@ -166,52 +155,40 @@ evaluate_health_matrix() {
     [ -z "$last_ticks" ] && last_ticks=0
     echo "$current_ticks" > "$CACHE_DIR/${token}_ticks.cache"
 
-    local current_net=$(get_uid_net_bytes "$num_uid")
+    # 5. Khảo sát Mạng chuẩn UID Android
+    local current_net=$(get_uid_net_bytes "$pid")
     local last_net=$(cat "$CACHE_DIR/${token}_net.cache" 2>/dev/null)
     [ -z "$last_net" ] && last_net=0
+    echo "$current_net" > "$CACHE_DIR/${token}_net.cache"
 
-    if [ "$current_net" -eq -1 ]; then
-        local cpu_drift=$((current_ticks - last_ticks))
-        [ "$cpu_drift" -lt 0 ] && cpu_drift=$((cpu_drift * -1))
-        
-        local net_freeze_cnt=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
-        [ -z "$net_freeze_cnt" ] && net_freeze_cnt=0
+    local net_freeze_cnt=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
+    [ -z "$net_freeze_cnt" ] && net_freeze_cnt=0
 
-        if [ "$cpu_drift" -le 1 ]; then
-            net_freeze_cnt=$((net_freeze_cnt + 1))
-        else
-            net_freeze_cnt=0
-        fi
-        echo "$net_freeze_cnt" > "$CACHE_DIR/${token}_net_freeze.cnt"
+    # Nếu data thu nhận không tăng sau các chu kỳ -> Tích lũy điểm đơ mạng
+    if [ "$current_net" -eq "$last_net" ] && [ "$current_net" -gt 0 ]; then
+        net_freeze_cnt=$((net_freeze_cnt + 1))
     else
-        local net_freeze_cnt=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
-        [ -z "$net_freeze_cnt" ] && net_freeze_cnt=0
-        if [ "$current_net" -eq "$last_net" ]; then
-            net_freeze_cnt=$((net_freeze_cnt + 1))
-        else
-            net_freeze_cnt=0
-        fi
-        echo "$current_net" > "$CACHE_DIR/${token}_net.cache"
-        echo "$net_freeze_cnt" > "$CACHE_DIR/${token}_net_freeze.cnt"
+        net_freeze_cnt=0
     fi
+    echo "$net_freeze_cnt" > "$CACHE_DIR/${token}_net_freeze.cnt"
 
-    local net_freeze_cnt_final=$(cat "$CACHE_DIR/${token}_net_freeze.cnt" 2>/dev/null)
-    [ -z "$net_freeze_cnt_final" ] && net_freeze_cnt_final=0
-    
+    # KIỂM TRA LỚP BẢO VỆ I: LAUNCH MAP TIMEOUT (7 PHÚT)
     local launch_time=$(cat "$CACHE_DIR/${token}_launch.ts" 2>/dev/null)
     [ -z "$launch_time" ] && launch_time=$now
-    
     if [ $((now - launch_time)) -gt "$LAUNCH_TIMEOUT" ]; then
-        if [ "$net_freeze_cnt_final" -ge "$NET_STAGNANT_THRESHOLD" ]; then echo "0|LAUNCH_MAP_TIMEOUT" && return 0; fi
+        if [ "$net_freeze_cnt" -ge "$NET_STAGNANT_THRESHOLD" ]; then
+            echo "0|LAUNCH_MAP_TIMEOUT" && return 0
+        fi
     fi
 
-    # 🎯 VÁ LỖI 3: SIẾT CHẶT ĐIỀU KIỆN INFINITE_LOOP_FREEZE (TĂNG NGƯỠNG LÊN CHU KỲ 12 VÀ CHỈ PHẠT KHI ĐANG Ở FOREGROUND)
-    if [ "$net_freeze_cnt_final" -ge 12 ]; then
-        if [ "$is_foreground" = "true" ] && [ "$current_ticks" -ne "$last_ticks" ] && [ "$last_ticks" -gt 0 ]; then 
+    # KIỂM TRA LỚP BẢO VỆ II: INFINITE LOOP FREEZE (CPU ĐIÊN CUỒNG NHƯNG MẠNG TỊT)
+    if [ "$net_freeze_cnt" -ge "$NET_STAGNANT_THRESHOLD" ]; then
+        if [ "$current_ticks" -ne "$last_ticks" ] && [ "$last_ticks" -gt 0 ]; then
             echo "0|INFINITE_LOOP_FREEZE" && return 0
         fi
     fi
 
+    # Phòng ngừa đóng băng Tab ngầm hợp lệ của Android OS
     if [ "$current_ticks" -eq "$last_ticks" ] && [ "$last_ticks" -gt 0 ]; then
         if [ "$is_foreground" = "false" ] && [ "$rss_kb" -gt 102400 ] && [ "$threads" -gt 5 ]; then
             score=$((score + 30))
@@ -221,7 +198,12 @@ evaluate_health_matrix() {
             [ -z "$f_cnt" ] && f_cnt=0
             f_cnt=$((f_cnt + 1))
             echo "$f_cnt" > "$CACHE_DIR/${token}_freeze.cnt"
-            if [ "$f_cnt" -ge 10 ]; then echo "0|ZOMBIE_FROZEN_TICKS" && return 0; else score=$((score + 15)); fi
+            
+            if [ "$f_cnt" -ge 10 ]; then
+                echo "0|ZOMBIE_FROZEN_TICKS" && return 0
+            else
+                score=$((score + 15))
+            fi
         fi
     else
         score=$((score + 30))
@@ -241,14 +223,7 @@ check_deferred_logs() {
     [ $((now - last_log_chk)) -lt "$LOG_CHECK_COOLDOWN" ] && return 1
     echo "$now" > "$CACHE_DIR/${token}_log_chk.ts"
 
-    local system_logs=""
-    system_logs=$(logcat -d --pid="$pid" -t 100 2>/dev/null)
-    
-    if [ -z "$system_logs" ]; then
-        # 🎯 VÁ LỖI 4: DÙNG GREP GIỚI HẠN KHÔNG GIAN TỪ (-w) TRÁNH TRÙNG KHỚP SAI GIỮA CÁC CHUỖI PID CON
-        system_logs=$(logcat -d -t 300 2>/dev/null | grep -w "$pid")
-    fi
-
+    local system_logs=$(logcat -d --pid="$pid" -t 100 2>/dev/null)
     if echo "$system_logs" | grep -qE "Connection lost|Disconnected|Timeout|Fatal|NullPointerException"; then
         echo "BG_ERR_DISCONNECT"
         return 0
@@ -256,33 +231,49 @@ check_deferred_logs() {
     return 1
 }
 
+# 🎯 FIX BUG 2: TRUY QUÉT ĐA USER/CLONE APP CHẶT CHẼ THEO ĐỘNG CƠ V12.7
 strict_nuke_package() {
-    local pid=$1 token=$2
-    if [ -d "/proc/$pid" ]; then
-        log_event "NUKE" "Giai phong tien trinh: PID=$pid" "$token"
-        kill "$pid" 2>/dev/null
-        sleep 0.5
-        kill -9 "$pid" 2>/dev/null
+    local pkg=$1 uid=$2
+    # Quét toàn diện theo User prefix cấp phát của Android kết hợp kiểm tra cmdline đích danh
+    local target_pids=$(ps -A 2>/dev/null | grep -E "u${uid}_" | grep "$pkg" | awk '{print $2}')
+    
+    if [ -z "$target_pids" ] && [ "$uid" -eq 0 ]; then
+        target_pids=$(pidof "$pkg" 2>/dev/null)
     fi
-    rm -f "$CACHE_DIR/${token}_ticks.cache" "$CACHE_DIR/${token}_net.cache" "$CACHE_DIR/${token}_net_freeze.cnt"
+
+    for p in $target_pids; do
+        [ ! -d "/proc/$p" ] && continue
+        local cmd=$(cat "/proc/$p/cmdline" 2>/dev/null | tr -d '\0')
+        case "$cmd" in
+            "$pkg"|"$pkg":*)
+                log_event "NUKE" "Giải phóng triệt để tiến trình Clone: PID=$p ($cmd)" "${pkg}_u${uid}"
+                kill "$p" 2>/dev/null
+                sleep 0.5
+                kill -9 "$p" 2>/dev/null
+                ;;
+        esac
+    done
+    
+    rm -f "$CACHE_DIR/${pkg}_u${uid}_ticks.cache"
+    rm -f "$CACHE_DIR/${pkg}_u${uid}_net.cache"
+    rm -f "$CACHE_DIR/${pkg}_u${uid}_net_freeze.cnt"
 }
 
 execute_recovery_pipeline() {
-    local pkg=$1 pid=$2 num_uid=$3 error_type=$4
+    local pkg=$1 uid=$2 error_type=$3 token="${pkg}_u${uid}"
     local now=$(date +%s)
+    local note_id=$(get_error_note_id "$error_type")
     
-    local am_user_id=$(get_user_id_from_uid "$num_uid")
-    local token="${pkg}_u${am_user_id}"
+    log_event "RECOVERY" "Kích hoạt Rejoin tối thượng. Lý do: $error_type (Note ID: $note_id)" "$token"
     
-    log_event "RECOVERY" "Khoi dong Rejoin tai User $am_user_id. Ly do: $error_type" "$token"
-    
-    [ "$pid" -ne 0 ] && strict_nuke_package "$pid" "$token"
+    strict_nuke_package "$pkg" "$uid"
     sleep 2
     
     echo "$now" > "$CACHE_DIR/${token}_launch.ts"
     
+    # Động cơ định tuyến mở app đa user đa luồng của V12.7
     local am_cmd="am start"
-    [ "$am_user_id" -ne 0 ] && am_cmd="am start --user $am_user_id"
+    [ "$uid" -ne 0 ] && am_cmd="am start --user $uid"
     $am_cmd -a android.intent.action.VIEW -d "roblox://placeId=2753915549" -p "$pkg" >/dev/null 2>&1
     
     local r_cnt=$(cat "$STATE_DIR/${token}_restarts.cnt" 2>/dev/null)
@@ -297,10 +288,11 @@ update_json_dashboard() {
     echo "  \"timestamp\": \"$(date '+%Y-%m-%d %H:%M:%S')\"," >> "${DASHBOARD_JSON}.tmp"
     echo "  \"instances\": [" >> "${DASHBOARD_JSON}.tmp"
 
-    for f in "$STATE_DIR"/*_score.txt; do
+    for f in "$CACHE_DIR"/*.pid; do
         [ ! -f "$f" ] && continue
-        local fname=$(basename "$f" _score.txt)
-        local score=$(cat "$f" 2>/dev/null)
+        local fname=$(basename "$f" .pid)
+        local c_pid=$(cat "$f" 2>/dev/null)
+        local score=$(cat "$STATE_DIR/${fname}_score.txt" 2>/dev/null)
         local l_err=$(cat "$STATE_DIR/${fname}_last_err.txt" 2>/dev/null)
         local r_cnt=$(cat "$STATE_DIR/${fname}_restarts.cnt" 2>/dev/null)
         
@@ -309,91 +301,64 @@ update_json_dashboard() {
         [ -z "$l_err" ] && l_err="NONE"
         [ -z "$r_cnt" ] && r_cnt=0
 
-        local escaped_err=$(printf '%s' "$l_err" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\r\n')
-
-        if [ "$first" = true ]; then first=false; else printf ",\n" >> "${DASHBOARD_JSON}.tmp"; fi
-        
-        # 🎯 VÁ LỖI 1: BẺ THẲNG HÀNG DELIMITER EOF ĐỨNG RIÊNG LẬP KHÔNG DÍNH DẤU NGOẶC TRÁNH LỖI PHÂN TÍCH CÚ PHÁP
-        cat <<EOF >> "${DASHBOARD_JSON}.tmp"
+        if [ "$first" = true ]; then first=false; else echo "," >> "${DASHBOARD_JSON}.tmp"; fi
+        cat << EOF >> "${DASHBOARD_JSON}.tmp"
     {
       "token": "$fname",
+      "pid": "$c_pid",
       "health_score": $score,
-      "last_error": "$escaped_err",
+      "last_error": "$l_err",
       "total_restarts": $r_cnt
-    }
-EOF
+    }EOF
     done
-    printf "\n  ]\n}\n" >> "${DASHBOARD_JSON}.tmp"
+    echo "\n  ]" >> "${DASHBOARD_JSON}.tmp"
+    echo "}" >> "${DASHBOARD_JSON}.tmp"
     mv "${DASHBOARD_JSON}.tmp" "$DASHBOARD_JSON"
 }
 
 monitor_core_loop() {
-    log_event "SYSTEM" "Loi V13.6 Sovereign Perfection chinh thuc nap chi thi." "GLOBAL"
-    prepare_clone_data_paths "$TARGET_PACKAGE"
-
+    log_event "SYSTEM" "Lõi Nexus Ultimate V12.9 đã nạp cấu trúc lai thành công." "GLOBAL"
+    
     while true; do
-        local instances=""
-        instances=$(discover_active_instances "$TARGET_PACKAGE")
-        local now=$(date +%s)
-        
-        if [ -z "$instances" ]; then
-            for u_id in $DETECTED_USERS; do
-                # 🎯 VÁ LỖI 5: THIẾT LẬP BỘ ĐẾM GIỮ COOLDOWN CHO SỰ CỐ KHÔNG TÌM THẤY TIẾN TRÌNH (PROCESS_MISSING)
-                local last_miss_rcv=$(cat "$CACHE_DIR/miss_recovery_u${u_id}.ts" 2>/dev/null)
-                [ -z "$last_miss_rcv" ] && last_miss_rcv=0
-                
-                if [ $((now - last_miss_rcv)) -ge "$PROCESS_RECOVERY_COOLDOWN" ]; then
-                    echo "$now" > "$CACHE_DIR/miss_recovery_u${u_id}.ts"
-                    log_event "SYSTEM" "Phat hien thieu thuc the tai User $u_id. Dang gui cuu ho..." "GLOBAL"
-                    local synthetic_uid=$((u_id * 100000))
-                    execute_recovery_pipeline "$TARGET_PACKAGE" "0" "$synthetic_uid" "PROCESS_MISSING"
-                else
-                    log_event "SYSTEM" "User $u_id trong trang thai trong, bo qua cuu ho do dang giu Cooldown an toan." "GLOBAL"
-                fi
-            done
-        else
-            # 🎯 VÁ LỖI 6: LOẠI BỎ TOÀN BỘ HOÀN TOÀN ĐƯỜNG ỐNG DẪN PIPE ĐỂ TRÁNH BẪY SUBSHELL TRÊN MKSH/ASH CỦA ANDROID
-            while read -r instance || [ -n "$instance" ]; do
-                [ -z "$instance" ] && continue
-                
-                local pid=$(echo "$instance" | cut -d'|' -f1)
-                local num_uid=$(echo "$instance" | cut -d'|' -f2)
-                
-                local am_user_id=$(get_user_id_from_uid "$num_uid")
-                local token="${TARGET_PACKAGE}_u${am_user_id}"
-                
-                local fg_app=$(dumpsys window windows 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
-                if [ -z "$fg_app" ] || [ "$fg_app" = "null" ]; then
-                    fg_app=$(dumpsys activity top 2>/dev/null | grep -E "TASK.*id=" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
-                fi
-                if [ -z "$fg_app" ] ; then
-                    fg_app=$(dumpsys activity activities 2>/dev/null | grep "mResumedActivity" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
-                fi
+        # 🎯 ĐỘNG CƠ HỖ TRỢ ĐA USER - DANH SÁCH DUYỆT TỰ ĐỘNG
+        # Thêm cấu hình vào đây theo dạng: "Package|User_ID" (Ví dụ: user chính = 0, song song = 10, Island = 999)
+        printf "%s\n" "${TARGET_PACKAGE}|0" "${TARGET_PACKAGE}|10" | while read -r entry || [ -n "$entry" ]; do
+            [ -z "$entry" ] && continue
+            local pkg=$(echo "$entry" | cut -d'|' -f1)
+            local uid=$(echo "$entry" | cut -d'|' -f2)
+            local token="${pkg}_u${uid}"
+            
+            local fg_app=$(dumpsys window windows 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -oE "com\.[a-zA-Z0-9._]+" | head -1)
+            local is_fg="false"
+            [ "$fg_app" = "$pkg" ] && is_fg="true"
 
-                local is_fg="false"
-                [ "$fg_app" = "$TARGET_PACKAGE" ] && is_fg="true"
+            local pid=$(get_cached_pid "$pkg" "$uid")
+            if [ -z "$pid" ]; then
+                echo "0" > "$STATE_DIR/${token}_score.txt"
+                echo "PROCESS_MISSING" > "$STATE_DIR/${token}_last_err.txt"
+                execute_recovery_pipeline "$pkg" "$uid" "PROCESS_MISSING"
+                continue
+            fi
 
-                local matrix_result=$(evaluate_health_matrix "$token" "$pid" "$is_fg" "$num_uid")
-                local current_score=$(echo "$matrix_result" | cut -d'|' -f1)
-                local health_status=$(echo "$matrix_result" | cut -d'|' -f2)
-                
-                echo "$current_score" > "$STATE_DIR/${token}_score.txt"
+            local matrix_result=$(evaluate_health_matrix "$token" "$pid" "$is_fg" "$pkg")
+            local current_score=$(echo "$matrix_result" | cut -d'|' -f1)
+            local health_status=$(echo "$matrix_result" | cut -d'|' -f2)
+            
+            echo "$current_score" > "$STATE_DIR/${token}_score.txt"
 
-                if [ "$current_score" -lt 40 ] || [ "$health_status" != "HEALTHY" ]; then
-                    execute_recovery_pipeline "$TARGET_PACKAGE" "$pid" "$num_uid" "$health_status"
-                    continue
-                fi
+            if [ "$current_score" -lt 40 ] || [ "$health_status" != "HEALTHY" ]; then
+                execute_recovery_pipeline "$pkg" "$uid" "$health_status"
+                continue
+            fi
 
-                local deferred_issue=$(check_deferred_logs "$pid" "$token" "$current_score")
-                if [ -n "$deferred_issue" ]; then
-                    echo "35" > "$STATE_DIR/${token}_score.txt"
-                    execute_recovery_pipeline "$TARGET_PACKAGE" "$pid" "$num_uid" "$deferred_issue"
-                    continue
-                fi
-            done <<EOF
-$instances
-EOF
-        fi
+            local deferred_issue=$(check_deferred_logs "$pid" "$token" "$current_score")
+            if [ -n "$deferred_issue" ]; then
+                echo "35" > "$STATE_DIR/${token}_score.txt"
+                echo "$deferred_issue" > "$STATE_DIR/${token}_last_err.txt"
+                execute_recovery_pipeline "$pkg" "$uid" "$deferred_issue"
+                continue
+            fi
+        done
         
         update_json_dashboard
         sleep "$CHECK_INTERVAL"
