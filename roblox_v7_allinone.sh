@@ -49,26 +49,6 @@ prepare_clone_data_paths() {
 
     local TARGET_PATHS=$(ls -d /data/user/*/"$pkg" 2>/dev/null)
     [ -d "/data/data/$pkg" ] && TARGET_PATHS="$TARGET_PATHS /data/data/$pkg"
-    
-    # =================================================================
-    # 🎯 BỔ SUNG LOGIC QUÉT RAM (MOUNTINFO) CHO ANDROID 12 Ở ĐÂY
-    # =================================================================
-    local running_pids=$(pidof "$pkg" 2>/dev/null)
-    if [ -z "$running_pids" ]; then
-        running_pids=$(ps -ef | grep "$pkg" | grep -v grep | awk '{print $2}')
-    fi
-
-    for pid in $running_pids; do
-        case "$pid" in ''|*[!0-9]*) continue ;; esac
-        if [ -f "/proc/$pid/mountinfo" ]; then
-            local DETECTED_PATH=$(cat "/proc/$pid/mountinfo" | grep -E "/data/user/|/data/data/" | grep "$pkg" | awk '{print $5}' | head -n 1)
-            if [ -n "$DETECTED_PATH" ] && [ -d "$DETECTED_PATH" ]; then
-                TARGET_PATHS="$TARGET_PATHS $DETECTED_PATH"
-            fi
-        fi
-    done
-    # =================================================================
-
     TARGET_PATHS=$(echo "$TARGET_PATHS" | tr ' ' '\n' | sort -u)
 
     local found_users="0"
@@ -89,13 +69,8 @@ prepare_clone_data_paths() {
     for CURRENT_DATA_PATH in $TARGET_PATHS; do
         if [ -d "$CURRENT_DATA_PATH" ]; then
             local FOLDER_OWNER=$(stat -c "%U:%G" "$CURRENT_DATA_PATH" 2>/dev/null)
-            if [ -n "$FOLDER_OWNER" ]; then
-                # 🎯 KẾT HỢP FIX CRASH BẰNG CHOWN & RESTORECON CỦA ÔNG
-                chown -R "$FOLDER_OWNER" "$CURRENT_DATA_PATH" 2>/dev/null
-                chmod -R 755 "$CURRENT_DATA_PATH" 2>/dev/null
-                if command -v restorecon >/dev/null 2>&1; then
-                    restorecon -R "$CURRENT_DATA_PATH" 2>/dev/null
-                fi
+            if [ -n "$FOLDER_OWNER" ] && command -v restorecon >/dev/null 2>&1; then
+                restorecon -R "$CURRENT_DATA_PATH" 2>/dev/null
             fi
         fi
     done
@@ -369,7 +344,7 @@ monitor_core_loop() {
                 
                 if [ $((now - last_miss_rcv)) -ge "$PROCESS_RECOVERY_COOLDOWN" ]; then
                     echo "$now" > "$CACHE_DIR/miss_recovery_u${u_id}.ts"
-                    log_event "SYSTEM" "Phat hien thieu thuc extreme tai User $u_id. Dang gui cuu ho..." "GLOBAL"
+                    log_event "SYSTEM" "Phat hien thieu thuc the tai User $u_id. Dang gui cuu ho..." "GLOBAL"
                     local synthetic_uid=$((u_id * 100000))
                     execute_recovery_pipeline "$TARGET_PACKAGE" "0" "$synthetic_uid" "PROCESS_MISSING"
                 else
