@@ -14,7 +14,7 @@ PROCESS_RECOVERY_COOLDOWN=180 # 🎯 VÁ LỖI 5: Cấu hình thời gian chờ 
 LOG_CHECK_COOLDOWN=120
 
 # --- HỆ THỐNG ĐƯỜNG DẪN ---
-BASE_DIR="$HOME/.nexus_monitor"
+BASE_DIR="/data/local/tmp/.nexus_monitor"
 STATE_DIR="$BASE_DIR/state"
 CACHE_DIR="$BASE_DIR/cache"
 LOG_FILE="$BASE_DIR/nexus_monitor.log"
