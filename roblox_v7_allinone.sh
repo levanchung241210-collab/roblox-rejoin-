@@ -309,7 +309,8 @@ update_json_dashboard() {
       "health_score": $score,
       "last_error": "$l_err",
       "total_restarts": $r_cnt
-    }EOF
+    }
+EOF
     done
     echo "\n  ]" >> "${DASHBOARD_JSON}.tmp"
     echo "}" >> "${DASHBOARD_JSON}.tmp"
