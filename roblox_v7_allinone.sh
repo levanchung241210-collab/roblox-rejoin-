@@ -186,16 +186,16 @@ setup_wizard() {
     echo ""
     
     echo "${YELLOW}[4/5] Creating config...${NC}"
-    cat > "$CONFIG_FILE" << CONFIGEOF
-PLACE_ID="$PLACE_ID"
-LINK="$LINK"
-CHECK_INTERVAL=$CHECK_INTERVAL
-MAX_RESTARTS=$MAX_RESTARTS
-PROCESS_RECOVERY_COOLDOWN=$PROCESS_RECOVERY_COOLDOWN
-PROCESS_MISSING_THRESHOLD=$PROCESS_MISSING_THRESHOLD
-NET_STAGNANT_THRESHOLD=$NET_STAGNANT_THRESHOLD
-LAUNCH_TIMEOUT=$LAUNCH_TIMEOUT
-UIAUTOMATOR_CHECK_THRESHOLD=$UIAUTOMATOR_CHECK_THRESHOLD
+    cat > "$CONFIG_FILE" << 'CONFIGEOF'
+PLACE_ID="2753915549"
+LINK="roblox://placeId=2753915549"
+CHECK_INTERVAL=20
+MAX_RESTARTS=10
+PROCESS_RECOVERY_COOLDOWN=180
+PROCESS_MISSING_THRESHOLD=3
+NET_STAGNANT_THRESHOLD=5
+LAUNCH_TIMEOUT=420
+UIAUTOMATOR_CHECK_THRESHOLD=70
 INSTALL_DIR="$INSTALL_DIR"
 STATE_DIR="$STATE_DIR"
 QUEUE_DIR="$QUEUE_DIR"
@@ -211,12 +211,11 @@ CONFIGEOF
     [ ! -f "$PROFILE" ] && PROFILE="$HOME/.profile"
     
     if ! grep -q "roblox-rejoin" "$PROFILE" 2>/dev/null; then
-        cat >> "$PROFILE" << 'ALIASEOF'
-
-alias roblox-rejoin="sh $HOME/.roblox_auto_rejoin/roblox_v13.4.sh"
-alias roblox-status="sh $HOME/.roblox_auto_rejoin/roblox_v13.4.sh status"
-alias roblox-logs="sh $HOME/.roblox_auto_rejoin/roblox_v13.4.sh logs"
-ALIASEOF
+        echo "" >> "$PROFILE"
+        echo "alias roblox-rejoin=\"sh \$HOME/.roblox_auto_rejoin/roblox_v13.4_final.sh\"" >> "$PROFILE"
+        echo "alias roblox-status=\"sh \$HOME/.roblox_auto_rejoin/roblox_v13.4_final.sh status\"" >> "$PROFILE"
+        echo "alias roblox-logs=\"sh \$HOME/.roblox_auto_rejoin/roblox_v13.4_final.sh logs\"" >> "$PROFILE"
+        echo "alias roblox-watch=\"sh \$HOME/.roblox_auto_rejoin/roblox_v13.4_final.sh watch\"" >> "$PROFILE"
     fi
     echo "${GREEN}✓${NC}"
     echo ""
@@ -246,22 +245,22 @@ init_state() {
     sf="$STATE_DIR/${state_key}.state"
     [ -f "$sf" ] && return
     
-    cat > "$sf" << STATEEOF
-HEALTH_SCORE=100
-CPU_TICKS=0
-NET_BYTES=0
-NET_FREEZE_COUNT=0
-PROCESS_MISSING_COUNT=0
-RESTART_PENDING=0
-RESTART_COUNT=0
-LAST_RESTART=0
-RESTART_FAIL_COUNT=0
-BACKOFF_UNTIL=0
-LAST_ERROR=NONE
-LAUNCH_TIME=$(date +%s)
-START_TIME=$(date +%s)
-PID_START_TIME=$(cat /proc/$instance/stat 2>/dev/null | awk '{print $22}')
-STATEEOF
+    {
+        echo "HEALTH_SCORE=100"
+        echo "CPU_TICKS=0"
+        echo "NET_BYTES=0"
+        echo "NET_FREEZE_COUNT=0"
+        echo "PROCESS_MISSING_COUNT=0"
+        echo "RESTART_PENDING=0"
+        echo "RESTART_COUNT=0"
+        echo "LAST_RESTART=0"
+        echo "RESTART_FAIL_COUNT=0"
+        echo "BACKOFF_UNTIL=0"
+        echo "LAST_ERROR=NONE"
+        echo "LAUNCH_TIME=$(date +%s)"
+        echo "START_TIME=$(date +%s)"
+        echo "PID_START_TIME=$(cat /proc/$instance/stat 2>/dev/null | awk '{print $22}')"
+    } > "$sf"
 }
 
 # ==================== DISCOVERY - HANDLES CLONES ====================
@@ -495,12 +494,12 @@ enqueue_restart() {
     release_lock
     
     qf="$QUEUE_DIR/${pkg}_${instance}_$(date +%s).queue"
-    cat > "$qf" << QUEUEEOF
-PKG=$pkg
-PID=$instance
-ERROR=$error
-TIME=$(date +%s)
-QUEUEEOF
+    {
+        echo "PKG=$pkg"
+        echo "PID=$instance"
+        echo "ERROR=$error"
+        echo "TIME=$(date +%s)"
+    } > "$qf"
     log_msg "QUEUE" "Enqueued - Error: $error" "$pkg"
 }
 
