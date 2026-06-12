@@ -1,21 +1,17 @@
 #!/system/bin/sh
 # =================================================================
-# ANDROID APPLICATION MONITOR FRAMEWORK (V17 - PERFECTED LOGIC)
-# Tích hợp: Fix Race Condition | Chuẩn hóa nhận diện PID Giả lập
+# ANDROID APPLICATION MONITOR FRAMEWORK (V18 - BULLETPROOF EMULATOR)
+# Tích hợp: Mở app bằng Monkey 100% thành công | Quét PID bằng lệnh chuẩn
 # =================================================================
 
-# --- CẤU HÌNH CHIẾN TRƯỜNG ---
 CHECK_INTERVAL=15
-LAUNCH_TIMEOUT=420        
-PROCESS_RECOVERY_COOLDOWN=30  
-FORCE_REJOIN_INTERVAL=180     
-APP_LAUNCH_GRACE_PERIOD=90 
+PROCESS_RECOVERY_COOLDOWN=20
+FORCE_REJOIN_INTERVAL=180
+APP_LAUNCH_GRACE_PERIOD=40 # Giảm xuống 40s để hết ảo giác nhanh hơn
 
-# --- HỆ THỐNG ĐƯỜNG DẪN ---
 BASE_DIR="/data/local/tmp/.nexus_monitor"
 STATE_DIR="$BASE_DIR/state"
 CACHE_DIR="$BASE_DIR/cache"
-LOG_FILE="$BASE_DIR/nexus_monitor.log"
 
 rm -rf "$STATE_DIR"/* "$CACHE_DIR"/*
 mkdir -p "$STATE_DIR" "$CACHE_DIR" "/sdcard/Download"
@@ -28,34 +24,25 @@ extract_roblox_username() {
     
     if [ -d "$data_path/shared_prefs" ]; then
         uname=$(grep -rioA 1 '"Username"' "$data_path/shared_prefs/" 2>/dev/null | grep -i "string" | head -1 | cut -d'>' -f2 | cut -d'<' -f1)
-        if [ -z "$uname" ]; then
-            uname=$(grep -rioE 'username":"[^"]+' "$data_path/shared_prefs/" 2>/dev/null | head -1 | cut -d'"' -f3)
-        fi
+        [ -z "$uname" ] && uname=$(grep -rioE 'username":"[^"]+' "$data_path/shared_prefs/" 2>/dev/null | head -1 | cut -d'"' -f3)
     fi
     [ -z "$uname" ] && uname="Chưa_Login"
     echo "$uname" | cut -c 1-12 
 }
 
-# 🎯 NHẬN DIỆN PID CỰC CHUẨN XÁC DÀNH RIÊNG CHO GIẢ LẬP
+# 🎯 DÙNG LỆNH PS CHUẨN ĐỂ TÌM PID (KHÔNG DÙNG /PROC NỮA)
 discover_active_instances() {
     local installed_pkgs=$1
     local active_list=""
-    
-    for pid_dir in /proc/[0-9]*; do
-        [ ! -d "$pid_dir" ] && continue
-        local pid=$(basename "$pid_dir")
-        local cmd=$(cat "$pid_dir/cmdline" 2>/dev/null | tr -d '\0')
+    for pkg in $installed_pkgs; do
+        # Tìm PID bằng lệnh ps, loại bỏ tiến trình phụ có dấu ":"
+        local pid=$(ps -A 2>/dev/null | grep -w "$pkg" | grep -v ":" | awk '{print $2}' | head -n 1)
+        # Fallback cho các bản Android giả lập đời cũ
+        [ -z "$pid" ] && pid=$(ps 2>/dev/null | grep -w "$pkg" | grep -v ":" | awk '{print $2}' | head -n 1)
         
-        if [ -n "$cmd" ]; then
-            for pkg in $installed_pkgs; do
-                # Chỉ lấy Main Process (Trùng khớp 100% với tên gói, không lấy các luồng có :UnityMain)
-                if [ "$cmd" = "$pkg" ]; then
-                    local num_uid=$(grep "^Uid:" "$pid_dir/status" 2>/dev/null | awk '{print $2}')
-                    [ -z "$num_uid" ] && num_uid="0"
-                    active_list="$active_list $pid|$pkg|$num_uid"
-                    break
-                fi
-            done
+        # Kiểm tra PID có phải là số hợp lệ không
+        if [ -n "$pid" ] && [ "$pid" -eq "$pid" ] 2>/dev/null; then
+            active_list="$active_list $pid|$pkg|0"
         fi
     done
     echo "$active_list"
@@ -78,9 +65,7 @@ evaluate_health_matrix() {
     local stat_line=$(cat "/proc/$pid/stat" 2>/dev/null)
     local current_ticks=0
     if [ -n "$stat_line" ]; then
-        local utime=$(echo "$stat_line" | awk '{print $14}')
-        local stime=$(echo "$stat_line" | awk '{print $15}')
-        current_ticks=$((utime + stime))
+        current_ticks=$(echo "$stat_line" | awk '{print $14 + $15}')
     fi
 
     local last_ticks=$(cat "$CACHE_DIR/${token}_ticks.cache" 2>/dev/null || echo "0")
@@ -101,33 +86,30 @@ evaluate_health_matrix() {
     echo "95|HEALTHY"
 }
 
-strict_nuke_package() {
-    local pid=$1 token=$2
-    if [ -n "$pid" ] && [ "$pid" -ne 0 ]; then
-        kill "$pid" 2>/dev/null
-        sleep 0.5
-        kill -9 "$pid" 2>/dev/null
-    fi
-    rm -f "$CACHE_DIR/${token}_ticks.cache" "$CACHE_DIR/${token}_freeze.cnt"
-}
-
+# 🎯 MODULE MỞ APP VÀ ÉP MAP SIÊU BẠO LỰC
 execute_recovery_pipeline() {
     local pkg=$1 pid=$2 error_type=$3
     local token="$pkg"
     local now=$(date +%s)
     
     if [ "$error_type" != "Ép_vào_Map" ]; then
-        strict_nuke_package "$pid" "$token"
+        if [ -n "$pid" ] && [ "$pid" -ne 0 ]; then
+            kill -9 "$pid" 2>/dev/null
+        fi
+        rm -f "$CACHE_DIR/${token}_ticks.cache" "$CACHE_DIR/${token}_freeze.cnt"
         sleep 1
     fi
     
     echo "$now" > "$CACHE_DIR/${token}_launch.ts"
     
-    local LAUNCH_ACTIVITY=$(cmd package resolve-activity --brief $pkg 2>/dev/null | tail -n 1)
-    [ -z "$LAUNCH_ACTIVITY" ] || [ "$LAUNCH_ACTIVITY" = "No activity found" ] && LAUNCH_ACTIVITY="$pkg/com.roblox.client.Activity.MainActivity"
+    # BƯỚC 1: Nếu app bị tắt, dùng Monkey ép app văng thẳng lên màn hình (100% Work trên giả lập)
+    if [ "$error_type" != "Ép_vào_Map" ]; then
+        monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+        sleep 4 # Chờ app khởi động lên màn hình
+    fi
     
-    local START_CMD="am start -f 0x14000000 -n $LAUNCH_ACTIVITY -a android.intent.action.VIEW -d \"roblox://placeId=2753915549\""
-    eval "$START_CMD >/dev/null 2>&1"
+    # BƯỚC 2: Bắn lệnh Deep Link đơn giản nhất không dùng cờ rườm rà
+    am start -n "$pkg/com.roblox.client.Activity.MainActivity" -a android.intent.action.VIEW -d "roblox://placeId=2753915549" >/dev/null 2>&1
     
     local r_cnt=$(cat "$STATE_DIR/${token}_restarts.cnt" 2>/dev/null || echo "0")
     echo "$((r_cnt + 1))" > "$STATE_DIR/${token}_restarts.cnt"
@@ -140,7 +122,7 @@ display_live_ui() {
     
     printf "\033c" 
     echo -e "\033[1;36m=======================================================================\033[0m"
-    echo -e "\033[1;32m 🤖 NEXUS V17 - PERFECTED LOGIC (EMULATOR READY) \033[0m"
+    echo -e "\033[1;32m 🤖 NEXUS V18 - BULLETPROOF EMULATOR EDITION \033[0m"
     echo -e "\033[1;36m=======================================================================\033[0m"
     printf "\033[1;33m%-20s | %-12s | %-6s | %-15s | %-15s\033[0m\n" "PACKAGE NAME" "TÊN ACCOUNT" "SCORE" "TRẠNG THÁI" "GHI CHÚ"
     echo "-----------------------------------------------------------------------"
@@ -173,20 +155,17 @@ display_live_ui() {
     echo -e "\033[1;36m=======================================================================\033[0m"
 }
 
-# 🎯 DÂY CHUYỀN LOGIC ĐÃ ĐƯỢC CHỐNG RACE CONDITION
 monitor_core_loop() {
     while true; do
         local installed_roblox=$(pm list packages | grep -i "roblox" | cut -d':' -f2 | tr -d '\r')
         local running_pids=$(discover_active_instances "$installed_roblox")
         local now=$(date +%s)
 
-        # Gộp chung mọi thứ vào 1 vòng lặp cho từng phần mềm
         for pkg in $installed_roblox; do
             local token="$pkg"
             local is_running=$(echo "$running_pids" | tr ' ' '\n' | grep -w "$pkg" | head -1)
             
             if [ -n "$is_running" ]; then
-                # === TRƯỜNG HỢP 1: TÌM THẤY APP ĐANG CHẠY TRÊN RAM ===
                 local pid=$(echo "$is_running" | cut -d'|' -f1)
                 echo "$pid" > "$STATE_DIR/${token}_pid.txt"
 
@@ -197,10 +176,8 @@ monitor_core_loop() {
                 echo "$current_score" > "$STATE_DIR/${token}_score.txt"
 
                 if [ "$current_score" -eq 0 ]; then
-                    # Bị lỗi hoặc CPU 0% bất động -> Diệt và cứu hộ
                     execute_recovery_pipeline "$pkg" "$pid" "$health_status"
                 else
-                    # App đang khỏe mạnh -> Chỉ kiểm tra xem có cần ép vào map không
                     local last_rejoin=$(cat "$CACHE_DIR/${token}_last_rejoin.ts" 2>/dev/null || echo "0")
                     if [ $((now - last_rejoin)) -ge "$FORCE_REJOIN_INTERVAL" ]; then
                         echo "$now" > "$CACHE_DIR/${token}_last_rejoin.ts"
@@ -208,7 +185,6 @@ monitor_core_loop() {
                     fi
                 fi
             else
-                # === TRƯỜNG HỢP 2: APP BỊ TẮT / KHÔNG TÌM THẤY PID ===
                 echo "0" > "$STATE_DIR/${token}_pid.txt"
                 echo "0" > "$STATE_DIR/${token}_score.txt"
                 
